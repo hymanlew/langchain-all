@@ -1,0 +1,28 @@
+# LangChain 相关包
+langchain
+langchain-ollama
+langchain-chroma
+langchain-community
+langgraph
+chromadb
+tavily-python
+python-dotenv
+
+# 文档处理相关包
+marker-pdf
+weasyprint
+mammoth
+openpyxl
+unstructured[all-docs]
+libmagic
+
+# Streamlit 相关包
+streamlit
+streamlit-chat
+streamlit-extras
+
+# 文档使用GPU处理时，安装GPU版PyTorch
+# use 'pip install -r requirements.txt --proxy=127.0.0.1:23474' to accelerate download speed
+# --extra-index-url https://download.pytorch.org/whl/cu124
+# torch==2.6.0+cu124
+# torchvision==0.21.0+cu124

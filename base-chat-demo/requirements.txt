@@ -1,0 +1,9 @@
+langchain==0.3.25
+langchain-community==0.3.24
+langchain-core==0.3.63
+langchain_openai==0.3.19
+langchain_ollama==0.3.3
+requests==2.32.3
+python-dotenv==1.1.0
+ujson==5.4.0
+pymilvus==2.5.10
