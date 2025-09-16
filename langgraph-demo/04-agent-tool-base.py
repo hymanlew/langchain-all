@@ -11,6 +11,20 @@ from pydantic import BaseModel, Field
 from langchain_core.tools import StructuredTool
 import asyncio
 
+"""
+## Reference Links
+**1. LangGraph Agents: Official Overview**
+https://langchain-ai.github.io/langgraph/agents/overview/
+→ High-level introduction to LangGraph’s agent system, including use cases, architecture, and behavior.
+
+**2. LangGraph Agents: Prebuilt Agent Classes & Setup**
+https://langchain-ai.github.io/langgraph/agents/agents/
+→ Documentation on using prebuilt agent classes like AgentExecutorGraph, along with memory, tools, and config options.
+
+**3. LangGraph Agents: API Reference**
+https://langchain-ai.github.io/langgraph/reference/agents/
+→ Technical reference for the prebuilt agent API — class signatures, initialization parameters, and helper functions.
+"""
 
 class CalculatorInput(BaseModel):
 	a: int = Field(description="first number")
@@ -22,7 +36,7 @@ def multiply(a:int, b:int) -> int:
 
 async def amultiply(a:int, b:int) -> int:
 	"""Multiply two numbers."""
-	raise ToolException('xxxxxx')
+	# raise ToolException('xxxxxx')
 	return a*b
 
 def _handle_error(error: ToolException) -> str:

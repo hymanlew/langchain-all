@@ -8,7 +8,7 @@ from typing import List
 from langchain_core.messages import SystemMessage
 from langchain_core.pydantic_v1 import BaseModel
 from langchain_openai import ChatOpenAI
-from langchain core.messages import AIMessage, HumanMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from typing import Literal
 from langgraph.graph import END
 from langgraph.checkpoint.memory import MemorySaver
@@ -56,7 +56,25 @@ class PromptInstructions(BaseModel):
 
 #定义一个函数，用于将系统消息和用户消息组合成一个消息列表
 def get_messages_info(messages):
-	return [SystemMessage(content=template)] + messages	
+	"""Change the agent's behavior depending on the query intent."""
+	user_msg = messages[-1].content.lower()
+
+	if "invest" in user_msg or "risks" in user_msg:
+		prompt = "You are a financial advisor. Give clear analysis of risks and opportunities."
+	elif "summarize" in user_msg:
+		prompt = "You are a summarizer. Keep the answer short and clear."
+	elif "explain" in user_msg:
+		prompt = "You are a teacher. Explain concepts step by step in simple terms."
+	else:
+		prompt = template
+
+	print(f"Selected prompt: {prompt}")
+	# Filter out any existing system messages
+	non_system_messages = [msg for msg in messages if msg.type != "system"]
+
+	# Return the new system message + all non-system messages
+	return [SystemMessage(content=prompt)] + non_system_messages
+
 	
 llm = ChatOpenAI(model="gpt-4o",temperature=0)
 llm_with_tool = llm.bind_tools([PromptInstructions])
@@ -87,17 +105,17 @@ prompt_gen_chain = get_prompt_messages | llm
 
 #定义一个函数，用于获取当前状态
 def get_state(messages) -> Literal["add_tool_message", "info", "__end__"]:
-	if isinstance(messages[-1], AIMessage) and messages[-1].tool calls:
+	if isinstance(messages[-1], AIMessage) and messages[-1].tool_calls:
 		return "add_tool_message"
 	elif not isinstance(messages[-1], HumanMessage):
 		return END
 	return "info"
 
 #定义一个函数，用于添加工具消息
-@workflow.add_node
 def add_tool_message(state: list):
 	return ToolMessage(
-		content="Prompt generated!", tool_call id=state[-1].tool_calls[0]["id"]
+		content="Prompt generated!",
+		tool_call_id=state[-1].tool_calls[0]["id"],
 	)
 
 

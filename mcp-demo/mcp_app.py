@@ -1,36 +1,40 @@
 """
-应该使用 create_tool_calling_agent 而非 create_react_agent，
-- 前者工具调用代理更适合企业场景，它明确区分工具使用和自然语言处理，
-- 后者 React代理更适合研究场景，在企业场景中可能导致不可预测的行为
+在生产环境中，使用 LangGraph 时，更推荐通过显式地自定义工作流（包括状态（State）管理、节点（Nodes）定义和条件边（Conditional Edges））
+来构建代理（Agent），而非依赖于单一的预置创建函数（如 create_react_agent）
 
-即使要使用 React模式，也要用 from langchain.agents import create_react_agent，以保证实时更新
+应该使用 from langchain.agents import create_tool_calling_agent 而非 create_react_agent（已经过时）
+- 前者工具调用代理更适合企业场景，它明确区分工具使用和自然语言处理，适用于快速创建标准工具调用节点，但仍需将其放入自定义的图工作流中，并配置条件边来实现循环。
+
+**LangGraph Prebuilt ReAct Agent (create_react_agent)**
+https://langchain-ai.github.io/langgraph/reference/agents/#langgraph.prebuilt.chat_agent_executor.create_react_agent
 """
 from typing import List, Dict, Optional
-from langchain.agents import AgentExecutor, create_tool_calling_agent
+
+from langchain.agents import create_tool_calling_agent, AgentExecutor
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_mcp_adapters.client import MultiServerMCPClient
+from langchain_openai import ChatOpenAI
 import gradio as gr
 import logging
 from mcp_config import Config
+# from langgraph.prebuilt import create_react_agent
 from fastapi import HTTPException
 from tenacity import retry, stop_after_attempt, wait_exponential
-
-
-# 初始化LLM，本地部署的
-llm = ChatopenAI(
-	temperature=0,
-	model="qwen3-8b",
-	api_key="EMPTY",
-	api_base="http://localhost:6006/v1"
-	# 启用深度思考模式
-	extra_body={"chat_template_kwargs": {"enable_thinking": True}},
-)
-
 
 # 配置日志
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
+# 初始化LLM，本地部署的
+llm = ChatOpenAI(
+    temperature=0,
+    model="qwen3-8b",
+    api_key="EMPTY",
+    api_base="http://localhost:6006/v1",
+    # 启用深度思考模式
+    extra_body={"chat_template_kwargs": {"enable_thinking": True}},
+)
 
 # 系统提示模板
 SYSTEM_PROMPT = """你是一个智能助手，尽可能的调用工具回答用户的问题。
@@ -65,7 +69,7 @@ import asyncio
 # 异步生命周期管理（app），异步上下文管理器在进入和退出上下文时可以执行异步操作。
 @asynccontextmanager
 async def managed_client(config: dict):
-    """企业级封装的异步客户端"""
+    \"\"\"企业级封装的异步客户端\"\"\"
     async with MultiServerMCPClient(config) as client:
         try:
             yield client
@@ -85,20 +89,20 @@ async def execute_graph(chat_bot: List[Dict]) -> List[Dict]:
             
         inputs = {"input": user_input}
         
-		"""
-		async def 的作用是声明函数为协程函数，使其内部可以包含 await、async with 等异步操作。但函数本身的定义不会自动使其内部代码异步执行。
-		- 若内部代码需要异步执行（如数据库连接建立、资源释放、网络会话等），则必须用 async with 来让异步上下文管理器管理其生命周期（普通with会阻塞事件循环）。
-		- 若内部代码操作对象是同步的（如本地计算、非异步I/O），则无需加 async。
-		"""
-		# MultiServerMCPClient 可以接收多个 server 配置，即可以连接多个 MCP 服务器
-		# with 自动释放资源
+        # MultiServerMCPClient 可以接收多个 server 配置，即可以连接多个 MCP 服务器
+        # with 自动释放资源
+        """
+        async def 的作用是声明函数为协程函数，使其内部可以包含 await、async with 等异步操作。但函数本身的定义不会自动使其内部代码异步执行。
+        - 若内部代码需要异步执行（如数据库连接建立、资源释放、网络会话等），则必须用 async with 来让异步上下文管理器管理其生命周期（普通with会阻塞事件循环）。
+        - 若内部代码操作对象是同步的（如本地计算、非异步I/O），则无需加 async。
+        """
         async with MultiServerMCPClient(Config.MCP_SERVER_CONFIG) as client:
             tools = client.get_tools()
             logger.info(f"Available tools: {[t.name for t in tools]}")
             
             # agent = create_react_agent(llm, client.get_tools())
             # 使用工具调用代理而非React代理，更适合企业场景
-			agent = create_tool_calling_agent(llm, tools, prompt)
+            agent = create_tool_calling_agent(llm, tools, prompt)
             executor = AgentExecutor(
                 agent=agent, 
                 tools=tools,
@@ -145,8 +149,7 @@ with gr.Blocks(title='调用MCP服务的Agent项目', css=Config.CSS) as instanc
 
     input_textbox = gr.Textbox(label='请输入你的问题📝', value='')  # 输入框组件
 
-    input_textbox.submit(do_graph, [input_textbox, chatbot], [input_textbox, chatbot])
-	.then(execute_graph, chatbot, chatbot)
+    input_textbox.submit(do_graph, [input_textbox, chatbot], [input_textbox, chatbot]).then(execute_graph, chatbot, chatbot)
 
 
 if __name__ == '__main__':
@@ -158,6 +161,3 @@ if __name__ == '__main__':
         "share": False,
         "debug": False
     })
-	
-	
-	

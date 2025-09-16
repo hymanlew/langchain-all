@@ -9,13 +9,17 @@ from langgraph.graph import END, StateGraph, START
 from typing import Annotated
 from langchain_community.tools.tavily_search import TavilySearchResults
 from langchain_core.tools import tool
-from langchain_experimental.utilities import PythonREPl
+from langchain_experimental.utilities import PythonREPL
 #导入操作符和类型注解
 import operator
+from langgraph.prebuilt import ToolNode
+from typing import Literal
 from typing import Annotated, Sequence, TypedDict
 from langchain_openai import ChatOpenAI
+from langchain_core.tools import Tool
 import functools
 from langchain_core.messages import AIMessage
+import requests
 
 
 #定义一个函数，用于创建代理
@@ -44,14 +48,14 @@ tavily_tool = TavilySearchResults(max_results=5)
 repl = PythonREPL()
 
 #定义一个工具函数，用于执行Python代码
-@tool
+@tool("python_code_tool")
 def python_repl(code: Annotated[str, "要执行以生成图表的Python代码。"]):
 	try:
 		result = repl.run(code)
 	except BaseException as e:
 		return f"执行失败。错误:{repr(e)}"
 		
-	result_str = f"成功执行:\n```python\n{code}\n```\nStdout: {result}"
+	result_str = f"成功执行:\n``python\n{code}\n```\nStdout: {result}"
 	return (result_str + "\n\n如果你已完成所有任务，请回复 FINAL ANSWER。")
 
 '''
@@ -75,6 +79,37 @@ plt.grid(True)
 plt.show()
 '''
 
+def lookup_stock_symbol(company_name: str) -> str:
+	"""
+    将公司名称转换为股票代码使用金融API，并获取其财务数据。
+    参数:
+        company_name (str): 公司全名（例如 'Tesla'）。
+    返回:
+        str: 股票代码（例如 'TSLA'）或错误信息。
+    """
+	api_url = "https://www.alphavantage.co/query"
+	params = {
+		"function": "SYMBOL_SEARCH",
+		"keywords": company_name,
+		"apikey": "your_alphavantage_api_key"
+	}
+	response = requests.get(api_url, params=params)
+	data = response.json()
+
+	if "bestMatches" in data and data["bestMatches"]:
+		return data["bestMatches"][0]["1. symbol"]
+	else:
+		return f"Symbol not found for {company_name}."
+
+
+# Create tool bindings with additional attributes
+lookup_stock = Tool.from_function(
+    func=lookup_stock_symbol,
+    name="lookup_stock_symbol",
+    description="Converts a company name to its stock symbol using a financial API.",
+    return_direct=False  # Return result to be processed by LLM
+)
+
 # 定义一个对象，用于在图的每个节点之间传递
 # 为每个代理和工具创建不同的节点
 class AgentState(TypedDict):
@@ -92,11 +127,11 @@ def agent_node(state, agent, name):
 		pass
 	else:
 		#将 tavily-result 转换为 AIMessage 类型，并且将 name 作为发送者的名称附加到消息中
-		result = AIMessage(**result.dict(exclude={"type", "name"})，name=name)
+		result = AIMessage(**result.dict(exclude={"type", "name"}), name=name)
 	return {"messages": [result], "sender": name}
 
 
-llm = Chat0penAI(model="gpt-4o")
+llm = ChatOpenAI(model="gpt-4o")
 research_agent = create_agent(llm, [tavily_tool], system_message="提供准确的数据供chart_generator使用。",)
 
 #创建一个检索节点，并使用部分应用函数(partial function)
@@ -109,13 +144,12 @@ chart_agent = create_agent(llm, [python_repl], system_message="你展示的任�
 chart_node = functools.partial(agent_node, agent=chart_agent, name="chart_generator")
 
 #创建工具节点
-from langgraph.prebuilt import ToolNode
-tools = [tavily_tool,python_repl]
+
+tools = [tavily_tool, python_repl, lookup_stock]
 tool_node = ToolNode(tools)
 
 
 #任一代理都可以决定结束
-from typing import Literal
 def router(state) -> Literal["call_tool","continue", "__end__"]:
 	messages = state["messages"]
 	last_message = messages[-1]
@@ -133,8 +167,8 @@ def router(state) -> Literal["call_tool","continue", "__end__"]:
 	
 workflow = StateGraph(AgentState)
 workflow.add_node("Researcher", research_node)
-workflow.add_node("chart_generator", chart_node
-workflow.add node("call_tool", tool_node)
+workflow.add_node("chart_generator", chart_node)
+workflow.add_node("call_tool", tool_node)
 workflow.add_conditional_edges("Researcher", router, {"continue":"chart_generator", "call_tool":"call_tool", "__end__": END})
 workflow.add_conditional_edges("chart_generator", router, {"continue": "Researcher", "call_tool": "call_tool", "__end__": END})
 workflow.add_conditional_edges(
@@ -155,9 +189,9 @@ with open("collaboration.png","wb") as f:
 #事件流
 events = graph.stream(
 	{
-	"messages": [
-		HumanMessage(content="获取过去5年AI软件市场规模，然后绘制一条折线图。一旦你编写好代码，就可以完成任务。")
-	],
+		"messages": [
+			HumanMessage(content="获取过去5年AI软件市场规模，然后绘制一条折线图。一旦你编写好代码，就可以完成任务。")
+		],
 	},
 	# 图中最多执行的步骤数
 	{"recursion_limit": 150},

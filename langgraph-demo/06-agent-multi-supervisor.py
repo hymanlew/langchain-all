@@ -400,7 +400,7 @@ doc_writing_supervisor = create_team_supervisor(
 # Note that we have unrolled the loop for the sake of this doc
 authoring_graph = StateGraph(DocWritingState)
 authoring_graph.add_node("Docwriter", doc_writing_node)
-authoring_graph,add_node("NoteTaker", note_taking_node)
+authoring_graph.add_node("NoteTaker", note_taking_node)
 authoring_graph.add_node("chartGenerator", chart_generating_node)
 authoring_graph.add_node("supervisor", doc_writing_supervisor)
 
@@ -412,7 +412,7 @@ authoring_graph.add_edge("chartGenerator", "supervisor")
 #Add the edges where routing applies
 authoring_graph.add_conditiona1_edges(
 	"supervisor",
-	1ambda x: x["next"],
+	lambda x: x["next"],
 	{
 		"Docwriter": "Docwriter",
 		"NoteTaker": "NoteTaker",
@@ -519,7 +519,7 @@ for s in super_graph.stream(
 	},
 	{"recursion_limit": 150},
 ):
-	if "_end_” not in s:
+	if "_end_" not in s:
 		print(s)
 		print("---")
 

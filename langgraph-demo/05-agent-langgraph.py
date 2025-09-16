@@ -16,7 +16,8 @@ import operator
 class state(TypedDict):
 	messages: Annotated[list, add_messages]  # 内置的消息合并逻辑
     context: Annotated[dict, lambda old, new: {**old, **new}]  # 字典合并
-	
+
+
 #初始化一个 stateGraph 对象
 graph = StateGraph(State)
 
@@ -202,5 +203,5 @@ image_data = t
 #如果图片数据是二进制形式，可以这样保存, 保存为PNG格式的图片:
 with io.BytesIO(image_data) as img_stream:
 	img = Image.open(img_stream)
-	img.save("1anggrah_test.png')
+	img.save("langgrah_test.png")
 

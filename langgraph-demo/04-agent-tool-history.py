@@ -63,11 +63,13 @@ from langchain_openai import ChatOpenAI
 方案二：自建爬虫服务，针对企业内部文档或特定网站，构建定制化爬虫工具，结合向量数据库实现本地化检索。
 """
 class SearchInput(BaseModel):
-	query: str = Field(description="搜索文本")
-	
+    query: str = Field(description="搜索文本")
 
-@tool("search-tool", args_schema=SearchInput, return_direct=True)
-def cn_search(query: str) -> str:;
+
+@tool("search-tool", args_schema=SearchInput, return_direct=False)
+def cn_search(query: str) -> str:
+    return query
+
 
 @tool
 def cn_search(query: str) -> str:
@@ -132,15 +134,18 @@ tools =[
         func=cn_search,
         description="当大模型没有相关知识时，用于搜索知识"
     ),
+    cn_search,
 ]
 
 # Agents 适合单代理任务，动态调用工具完成简单决策
 # langgraph agent 适合多代理协作或复杂流程编排，支持循环、分支、并行
 # 创建 Agent（以智谱 GLM-4 为例）
+memorySaver = InMemorySaver()
 agent = create_react_agent(
     model,
     tools,
-    prompt
+    prompt,
+    checkpointer=memorySaver
 )
 
 """
@@ -151,8 +156,8 @@ agent_executor 实际就是一个 Chain(链)类。AgentExecutor 类就继承自 
 """
 # 执行搜索任务
 agent_executor = AgentExecutor(
-	agent=agent, tools=tools, memory=memory对象, verbose=True,
-	handle_parsing_errors='自定义的异常信息'
+    agent=agent, tools=tools, memory=memorySaver, verbose=True,
+    handle_parsing_errors='自定义的异常信息'
 )
 
 def get_session_history(user_id: str, session_id: str) -> BaseChatMessageHistory:
@@ -160,29 +165,30 @@ def get_session_history(user_id: str, session_id: str) -> BaseChatMessageHistory
         store[(user_id, session_id)] = ChatMessageHistory()
     return store[(user_id, session_id)]
 
+
 do_message = RunnableWithMessageHistory(
     agent_executor,
     get_session_history,
     input_messages_key='input',  # 每次聊天时要发送的 msg 的 key
-	history_message_key='history',
+    history_message_key='history',
     history_factory_config=[
-		ConfigurableFieldSpec(
-			id="user_id",
-			annotation=str,
-			name="User ID",
-			description="用户的唯一标识符",
-			default="",
-			is_shared=True,
-		),
-		ConfigurableFieldSpec(
-			id="session_id",
-			annotation=str,
-			name="Session ID",
-			description="对话的唯一标识符",
-			default="",
-			is_shared=True,
-		),
-	],
+        ConfigurableFieldSpec(
+            id="user_id",
+            annotation=str,
+            name="User ID",
+            description="用户的唯一标识符",
+            default="",
+            is_shared=True,
+        ),
+        ConfigurableFieldSpec(
+            id="session_id",
+            annotation=str,
+            name="Session ID",
+            description="对话的唯一标识符",
+            default="",
+            is_shared=True,
+        ),
+    ],
 )
 
 config = {'configurable': {'user_id':'111', 'session_id': 'user1'}}
