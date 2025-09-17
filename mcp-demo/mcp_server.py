@@ -6,7 +6,6 @@ from utils.env_utils import ZHIPU_API_KEY
 mcp = FastMCP("Math")
 zhipu_client = ZhipuAI(api_key=ZHIPU_API_KEY, base_url='https://open.bigmodel.cn/api/paas/v4/')
 
-
 """
 - 添加工具装饰器 @xxx，并且目前主流 mcp-server 都是用 java 写的
 - name 为工具名称，若不指定，则默认是函数名称

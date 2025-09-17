@@ -36,6 +36,23 @@ functools.partial 作用是冻结函数的部分参数，生成一个参数更�
 定义Agent访问web和写入文件的工具，定义一些实用程序来帮助创建图形和Agent
 创建和定义每个团队(网络研究+文档写作)，把一切都组合在一起。
 每个团队将由一名或多名gent组成，每个Agent都有一个或多个工具。
+
+
+**1. Customizing langgraph-supervisor-py**
+https://github.com/langchain-ai/langgraph-supervisor-py?tab=readme-ov-file#how-to-customize
+→ Guide for customizing the LangGraph supervisor package, including configuration options, handoff behaviors, and integration patterns.
+
+**2. Adding Short-Term Memory in LangGraph**
+https://langchain-ai.github.io/langgraph/how-tos/memory/add-memory/#read-short-term
+→ Tutorial section on implementing short-term memory in LangGraph agents, covering memory configuration, state persistence, and retrieval mechanisms.
+
+**3. LangGraph Supervisor API Reference**
+https://langchain-ai.github.io/langgraph/reference/supervisor/
+→ Technical reference for supervisor utilities (create_supervisor, handoff/forward tools), parameters, and options in LangGraph.
+
+**4. Creating Supervisor from Scratch Tutorial**
+https://langchain-ai.github.io/langgraph/tutorials/multi_agent/agent_supervisor/#3-create-supervisor-from-scratch
+→ Step-by-step guide to building a custom supervisor for multi-agent systems, including worker agent setup and task delegation logic.
 """
 #------------------ 公共服务函数 -----------------------
 
