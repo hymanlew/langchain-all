@@ -5,12 +5,16 @@ langchain_openai==0.3.19
 langchain_ollama==0.3.3
 langchain-tavily==0.2.11
 langchain_experimental==0.3.4
+langgraph==0.5.4
+langgraph-supervisor==0.0.28
+
+aiohttp == 3.12.15
+fastmcp == 2.12.3
+mcp == 1.13.1
+
 requests==2.32.3
 python-dotenv==1.1.0
 ujson==5.4.0
 pymilvus==2.5.10
-langgraph==0.5.4
-langgraph-supervisor==0.2.28
-
 trustcall
 yfinance

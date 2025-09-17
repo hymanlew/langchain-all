@@ -13,7 +13,7 @@ Agent 系统中”人机交互”(Human-in-the-loop，HIL) 模式在处理需要
 - 更新状态: 使用 .update_state 方法，将用户的反馈更新到图的状态中
 """
 from typing_extensions import TypedDict
-from langgraph.graph import StateGraph, START, END
+from langgraph.graph import START, END
 from langgraph.types import interrupt
 from langgraph.checkpoint.memory import MemorySaver
 from IPython.display import Image, display
@@ -35,29 +35,28 @@ interrupt 函数与 Command 对象结合使用，以人类提供的值恢复图�
 '''
 def human_node(state: State):
 	result = interrupt(
-		#任何可序列化为 JSON 的值，可以展示给客户端供人类查看。
+		#调用 interrupt 发起中断，并传递任何可序列化为 JSON 的值，可以展示给客户端供人类查看。
 		#这里是等待人类手动输入的，例如一个问题、一段文本或状态中的一组键
 		{
 			"task":"审査 LLM 的输出并进行必要的编辑。"
 			"llm_generated_summary": state["llm_generated_summary" ]
 		}
 	)
-	
-	#while True:
-	#	answer = interrupt("你多大年龄了？")
-	#	if answer xxx
-	#	break
-		
+
+	#interrupt() 返回的是将用户输入通过 Command 封装后的响应（字符串或字典）
+    #假设用户返回的是修改后的摘要字符串
+    reviewed_summary = result.get("reviewed_text") 如果传的是字典
+
 	#使用编辑后的文本，或人类的输入更新状态或根据输入调整图形
 	#可以根据响应的 result，来判断执行 SQL 操作，生成摘要等等
 	return Command(goto="call_llm", update={"message":"xxx"}) if True else return None
-	return {"1lm_generated_summary": result["edited_text"]}
+	return {"human_reviewed_summary": reviewed_summary}
 
-	
+
 def step_3(state):
 	print("---Step 3---")
 	pass
-	
+
 builder = StateGraph(State)
 builder.add_node("step_1", step_1)
 builder.add_node("human_feedback", human_node)
@@ -79,23 +78,26 @@ LangGraph有一个内置持久化层，是通过检査点实现（提供内存/�
 都可以发送到该检查点，该检查点将保留对其以前消息的记忆。
 '''
 #使用异步上下文管理器创建一个 AsyncSqliteSaver 对象，并连接到名为 "checkpoints.db"的 SQLite 数据库
-#以上是连接的数据库，还可以连接 内存, redis, mongodb 等等数据库，导入相关库即可
+#以上是连接的数据库，还可以连接 内存-MemorySaver, SqliteSaver, RedisSaver, mongodb, PostgresSaver 等等数据库，导入相关库即可
 saver = AsncSgliteSaver.from_conn_string("checkpoints.db")
+# saver = PostgresSaver.from_conn_string("postgresql://user:password@localhost:5432/your_database")
+# from psycopg_pool import ConnectionPool
+# pool = ConnectionPool(conninfo="postgresql://user:password@localhost:5432/your_database", max_size=20) # 设置连接池大小
+# saver = PostgresSaver(sync_connection=pool)
+# saver.setup()  # 可选：自动创建所需的表
 
 #设置内存检查点
 memory = MemorySaver()
 
+"""
+检查点（Checkpoint）机制的核心作用是保存状态图执行过程中的状态快照，包含了当前所有状态通道（State Channels）的值、下一步要执行的节点信息以及相关的元数据。
+在生产环境，优先使用官方推荐的 PostgresSaver。如果想使用 MySQL 作为持久化存储，官方当前不支持，只能自定义实现：实现 BaseSaver 接口
+"""
 #编译图并设置断点
 graph = builder.compile(checkpointer=memory/saver, interrupt_before=["human_feedback"])
 
 #查看图的结构
 display(Image(graph.get_graph().draw_mermaid_png()))
-
-
-#接下来，可以运行图直到指定的断点，等待用户输入。以下代码展示了如何实现这一点:
-#输入初始化数据
-initial_input = {"input": "he11o wor1d"}
-thread ={"configurable":{"thread_id": "some_id"}}
 
 
 '''
@@ -109,36 +111,104 @@ stream_mode="updates"：
 在 updates 模式下，数据流会返回每个步骤的增量更新。即每一次迭代只会得到自上一次迭代以来的变化部分。
 适用场景: 适用于需要实时更新或增量更新的场景，比如实时显示处理进度或逐步输出的场景。
 示例: 构建一个实时聊天应用程序，需要逐步显示对话内容，那么 updates 模式是合适的选择。
+
+custom：从图节点内部流式传输自定义数据。通常用于调试。
+可以自定义输出内容。在Node节点内或者Tod1s工具内，通过get_stream_writer()方法获取一个StreamWriter对象，然后使用write()方法将自定义数据写入流中。
+
+messages：从任何调用大语言模型(LLM)的图节点中，流式传输二元组(LLM的Token，元数据)。
+
+debug：在图的执行过程中尽可能多地传输信息。用得比较少。
 '''
-#运行图，流式输出，直到第一个中断点
-for event in graph.stream(initial_input, thread, stream_mode="values"):
-	print(event)
-	
-	
-#一旦程序到达断点，开发人员可以通过以下方式获取用户输入并更新图的状态
-try:
-	user_input = input("Tell me how you want to update the state: ")
-except :
-	user_input ="go to step 3!"
-	
-#更新状态
-graph.update_state(thread, {"user_feedback": user_input}, as_node="human_feedback")
+# 初始输入，例如用户的初始问题
+user_input = None
+initial_state = {"original_text": "这是一段很长的文本...", "llm_generated_summary": None, "human_reviewed_summary": None}
 
-#检查状态
-print("--State after update-.")
-print(graph.get_state(thread))
+# 4. 主循环：运行图并处理中断
+config = {"configurable": {"thread_id": "example_thread_1"}} # 线程ID，用于标识不同的执行会话
+current_input = None # 初始输入，例如用户的初始问题
+# 假设这是初始状态，或者从某个地方获取
+initial_state = {"original_text": "这是一段很长的文本...", "llm_generated_summary": None, "human_reviewed_summary": None}
 
-#检查下一个节点
-print(graph.get_state(thread).next)
+while True:
+    interrupted = False
+    # 使用 graph.stream 以流式方式执行，直到第一个中断点，便于捕获中断事件
+    for event in graph.stream(initial_state if current_input is None else current_input, config, stream_mode="values"):
+        # 1. 检查是否是中断事件
+        if "__interrupt__" in event:
+            interrupt_event = event["__interrupt__"][0] # 提取中断信息
+            print(f"\n中断发生: {interrupt_event.value}") # 打印中断时传递的信息
+
+            # 2. 模拟等待用户输入（在生产环境中，可能是从Web接口、队列等获取）
+			try:
+				user_response = input("请输入您的审查意见或修改后的摘要: ")
+			except :
+				user_response ="go to step 3!"
+
+            # 3. 将用户的输入封装成 Command 对象，准备用于恢复执行
+            # Command(resume=...) 中的值会被传递给 human_review_node 中的 interrupt() 调用
+            current_input = Command(resume=user_response)
+            interrupted = True
+
+			#更新状态
+			graph.update_state(config, {"user_feedback": user_input}, as_node="human_feedback")
+
+			#检查状态
+			print("--State after update-.")
+			print(graph.get_state(config))
+
+			#检查下一个节点
+			print(graph.get_state(config).next)
+            break # 发生中断，跳出当前的事件循环
+
+        else:
+            # 如果是正常的状态更新，可以打印或处理
+            print(f"状态更新: {event}")
+            # 如果遇到结束信号或最终状态，也可以考虑跳出循环
+            # if some_condition: break
+
+    if not interrupted:
+        # 如果没有发生中断，说明Graph执行完毕
+        print("任务执行完毕！")
+        break # 退出主循环
+
 
 '''
 中断非常强大且易于使用。在体验上类似于 Python 的 input() 函数，但要注意，它不会自动从中断点恢复执行。
 相反，它们会重新运行使用中断的整个节点。
 因此，中断通常最好放置在节点的开头或一个专用的节点中。
+
+以上整个流程如下：
+- 执行与中断：graph.stream 开始执行，运行到 human_review_node 中的 interrupt() 调用时，Graph 引擎会暂停在该节点，并抛出一个 __interrupt__ 事件。
+- 捕获与等待：主循环（for event in graph.stream...）捕获到这个特殊事件，然后等待并获取用户输入（user_response = input(...)）。
+- 准备恢复：将用户的输入包装成一个 Command(resume=...) 对象，赋值给 current_input。然后跳出当前事件循环（for 循环）
+- 再次调用与恢复：由于外层的 while True 循环，代码会再次执行 graph.stream(current_input, config, ...)。这次，Graph 引擎会拿着 Command 对象回到上次中断的地方，interrupt() 调用此时会返回 user_response，然后 human_review_node 节点继续执行剩下的代码（即 return ...）。
+- 继续执行：节点执行完毕后，Graph 会继续自动执行后面的节点，直到再次中断或结束。
 '''
-#用人类的输入恢复图形
-#传递值到图
-graph.invoke(Command(resume=user_input), config=thread)
-#更新图的状态
-graph.invoke(Command(update={"foo":"bar"}, resume=user_input), config=thread)
+
+from typing import TypedDict
+from langgraph.config import get_stream_writer
+from langgraph.graph import StateGraph, START
+
+class State(TypedDict):
+	query: str
+	answer: str
+
+def node(state: state):
+	writer = get_stream_writer()
+	writer({"自定义key": “在节点内返回自定义信息”})
+	return {answer":"some data"'}
+
+graph = (
+	StateGraph(State)
+	.add_node(node)
+	.add_edge(START, "node" )
+	.compile()
+)
+inputs = {"query": "example"}
+
+# custom 表示自定义的信息不会存入 state 中，并且图中每个节点执行的结果就是 writer 的信息并返回，而不是 state 执行结果。
+# 这个设置主要用于调试图节点的执行过程，通过输出每一步的自定义信息来判断流程是否正常。
+# 如果要正常输出节点的结果，即正常执行图流程，改为正常的 stream_mode 即可。
+for chunk in graph.stream(inputs, stream_mode="custom"):
+	print(chunk)
 

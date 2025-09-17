@@ -4,8 +4,8 @@ LangGraph MultiAgent 架构
 
 协作多 Agent(multi-agent-collaboration)
 参考: https://github.com/langchaln-al/langgraph/blob/main/docs/docs/tutorials/multil_agent/mult-agent-collaboration.ipynb
-在这个例子中，不同的 Agen t在一个共享的消息暂存器上进行协作。这意味着他们所做的所有工作对对方都是可见的。
-这样做的好处是其他 Agent 可以看到完成的所有单个步骤。这样做的缺点是，有时传递所有这些信息过于冗长和不必要，有时只需要Agent的最终答案。
+在这个例子中，不同的 Agent 在一个共享的消息暂存器上进行协作。这意味着他们所做的所有工作对对方都是可见的。
+这样做的好处是其他 Agent 可以看到完成的所有单个步骤。但缺点是，有时传递所有这些信息过于冗长和不必要，有时只需要Agent的最终答案。
 由于共享的性质，我们将这种协作称为暂存器。
 
 控制状态转换的主要组件是路由器，它是一个基于规则的路由器，因此相当简单。基本上每次调用 LLM 后，它都会查看输出。

@@ -1,6 +1,5 @@
 """
-简单逻辑的或少量 AGENT，使用协作 AGENT
-当有大量任务 agent 时，使用主管 AGENT
+简单逻辑的或少量 AGENT，使用协作 AGENT。但当有大量任务 agent 时，使用主管 AGENT
 当有更多 agent 时，一个主管 AGENT 也不够了，就要使用分层多 Agent(Hierarchical Agent)
 
 参考: https://github.com/langchaln.ai/langgraph/blob/maln/docs/docs/tutorlals/multil_agent/hierarchical_agent_teams.ipynb
@@ -20,7 +19,7 @@ typing：Python 类型提示支持库。
 				Field(..., description="File path", regex=r"^/data/.*\.txt$")
 			]
 		) -> str: 可以直接在类型注解中说明参数用途，此时 file_name 不只是表示字符串，而且还说明了用途，及格式校验
-		
+
 	Literal 用于创建字面量类型（如 Literal["a","b"] 表示值只能是 "a"或"b"）。
 
 functools.partial 作用是冻结函数的部分参数，生成一个参数更少的新函数。
@@ -95,7 +94,7 @@ def agent_node_run(state, agent, name):
 	return {
 		"messages": [HumanMessage(content=result["messages"][-1].content, name=name)]
 	}
-	
+
 
 #主管定义函数，可以创建子团队的主管，也可以创建大主管
 #定义一个主管，并执行路由操作，返回下一节点的节点名
@@ -217,7 +216,7 @@ def msg_func(message: str):
 		"messages": [HumanMessage(content=message)]
 	}
 	return results
-	
+
 research_chain = msg_func | research_graph_chain
 
 #可以显示 graph 结构
@@ -273,8 +272,8 @@ def create_outline(
 		for i, point in enumerate(points):
 			file.write(f"{i + 1}, {point}\n")
 	return f"outline saved to {file_name}"
-	
-	
+
+
 # 文档阅读工具
 @tool
 def read_document(
@@ -288,8 +287,8 @@ def read_document(
 	if start is not None:
 		start = 0
 	return "\n".join(lines[start:end])
-	
-	
+
+
 # 写文档工具
 @tool
 def write_document(
@@ -300,7 +299,7 @@ def write_document(
 	with(WORKING_DIRECTORY/file_name).open("w") as file:
 		file.write(content)
 	return f"Document saved to {file_name}"
-	
+
 
 # 编辑文档工具
 @tool
@@ -314,19 +313,19 @@ def edit_document(
 	"""Edit a document by inserting text at specific line numbers."""
 	with(WRKING_DIRECTORY/file_name).open("r") as file:
 		lines = file.readlines()
-		
+
 	sorted_inserts = sorted(inserts.items())
 	for line_number, text in sorted_inserts:
 		if 1 <= line_number <= len(lines) - 1:
 			lines.insert(line_number-1, text + "\n")
 		else:
 			return f"Error: Line number {line_number} is out of range."
-			
+
 	with(WORKING_DIRECTORY/file_name).open("w") as file:
 		file.writelines(lines)
-		
+
 	return f"Document edited and saved to {file_name}"
-	
+
 
 #Document writing team graph state
 class DocWritingState(TypedDict):
@@ -338,7 +337,7 @@ class DocWritingState(TypedDict):
 	next: str
 	# This tracks the shared directory state
 	current_files: str
-	
+
 
 # warning: This executes code locally, which can be unsafe when not sandboxed
 repl = PythonREPL()
@@ -353,7 +352,7 @@ def python_repl(
 		result = repl.run(code)
 	except BaseException as e:
 		return f"failed to execute. Error: {repr(e)}"
-		
+
 	return f"Successfully executed:\n'''pythoa\n{code}\n'''\nstdout: {result}"
 
 
@@ -373,7 +372,7 @@ def prelude(state):
 		return {**state, "current_files": "No files written."}
 	return {
 		**state,
-		"current_files": "\nBelow are files your team has written to the directory:\n" + 
+		"current_files": "\nBelow are files your team has written to the directory:\n" +
 		"\n".join([f"- {f}" for f in written_files]),
 	}
 
@@ -495,10 +494,10 @@ class State(TypedDict):
 	
 def get_last_message(state: State) -> str:
 	return state["messages"][-1].content
-	
+
 def get_result_message(response: dict):
 	return {"messages": [response["messages"][-1]]}
-	
+
 # Define the graph.
 super_graph = StateGraph(State)
 #First add the nodes, which will do the work
@@ -536,7 +535,7 @@ for s in super_graph.stream(
 	},
 	{"recursion_limit": 150},
 ):
-	if "_end_" not in s:
+	if "_end_” not in s:
 		print(s)
 		print("---")
 

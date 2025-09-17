@@ -59,7 +59,6 @@ async def main():
 	)
 	print(calculator.invoke({"a":2,"b":3}))
 	print(await calculator.ainvoke({"a":2,"b":5}))
-	
 
 
 asyncio.run(main())

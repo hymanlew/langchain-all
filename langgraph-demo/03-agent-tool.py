@@ -144,10 +144,12 @@ chart_agent = create_agent(llm, [python_repl], system_message="你展示的任�
 chart_node = functools.partial(agent_node, agent=chart_agent, name="chart_generator")
 
 #创建工具节点
-
+"""
+使用 llm.bind_tools(tools) 创建的节点只是大模型推理，并生成含工具调用请求的 AIMessage（包含 tool_calls 字段），但不会自动调用工具，只负责生成工具调用请求。
+而使用 ToolNode(tools) 创建的节点会自动调用工具，并生成 ToolMessage (包含工具执行结果)。
+"""
 tools = [tavily_tool, python_repl, lookup_stock]
 tool_node = ToolNode(tools)
-
 
 #任一代理都可以决定结束
 def router(state) -> Literal["call_tool","continue", "__end__"]:

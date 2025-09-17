@@ -5,7 +5,7 @@ from psycopg2.extras import RealDictCursor
 import psycopg2
 import json
 
-mcp = FastMCP( name:"数据查询mcp服务端", debug=True,host="0.0.0.0", port=3001)
+mcp = FastMCP("数据查询mcp服务端", debug=True, host="0.0.0.0", port=3001)
 
 #数据库连接配置
 DB_CONFIG = {
@@ -99,8 +99,7 @@ async def summarize_document(document_uri: str, context: Context)-> str:
 #以上服务端开发完成后，由于是三方开发 client 来调用，所以自己只需调试成功即可。
 #MCP 官方提供了一个本地调试的工具（mcp inspector），需要安装 pip install mcp['cli'] 包，并导入包 mcp.server.fastmcp as fastmcp（代替 fastmcp 包），运行时不是运行文件，而使用命令 mcp dev server.py。启动成功后，浏览器会弹出一个调试页面。
 
-------------------------- Client --------------------------
-
+# ------------------------- Client --------------------------
 from fastmcp import Client
 from openai import OpenAI, AsyncOpenAI
 import asyncio

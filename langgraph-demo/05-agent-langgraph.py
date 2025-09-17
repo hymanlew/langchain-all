@@ -21,7 +21,7 @@ class state(TypedDict):
 #初始化一个 stateGraph 对象
 graph = StateGraph(State)
 
-# 一个 mode1，暂时理解为调用大模型，Reasoning的过程。
+# 一个 model，暂时理解为调用大模型，Reasoning的过程。
 def model():
 	return {"messages": [llm.invoke(state["messages"])]}
 	
@@ -31,7 +31,7 @@ def tool_executor():
 
 # 添加节点, name是节点名称str, va1ue是节点值, 可以是一个函数或是 LCEL runnable(一个chain)
 #graph.add_node(name, value),	
-graph.add_node("model", mode1)
+graph.add_node("model", model)
 graph.add_node("tools", tool_executor)
 
 
@@ -130,7 +130,7 @@ def ca11_model(state):
 	
 	
 #定义一个Graph，初始化一个stateGraph对象
-workflow = StateGraph(Agentstate(messages=[]))
+workflow = StateGraph(Agentstate)
 workflow.add_node("agent", call_model)
 workflow.add_node("tools", tool_node)
 
