@@ -2,15 +2,13 @@
 简单逻辑的或少量 AGENT，使用协作 AGENT。但当有大量任务 agent 时，使用主管 AGENT
 当有更多 agent 时，一个主管 AGENT 也不够了，就要使用分层多 Agent(Hierarchical Agent)
 
-参考: https://github.com/langchaln.ai/langgraph/blob/maln/docs/docs/tutorlals/multil_agent/hierarchical_agent_teams.ipynb
+参考: https://github.com/langchain-ai/langgraph/blob/main/docs/docs/tutorials/multi_agent/hierarchical_agent_teams.ipynb
 在前面 Agent 主管中，引入了单个主管节点的概念，以在不同的工作节点之间路由工作。但如果单个工人的工作变得过于复杂，工人人数太多怎么办？对于某些应用程序，
 如果工作是分层分布的，系统可能会更有效。
 可以通过组合不同的子图并创建顶级主管和中级主管来实现这一点。我们称之为分层团队。因为子Agent 在某种程度上可以被视为团队，并由主管 Agent 将他们连接起来。
 
-
 代码说明：
 operator：Python 标准库，提供运算符的函数式接口（如 operator.add 对应 + 的操作）
-
 typing：Python 类型提示支持库。
 	Annotated 用于添加元数据的类型注解，
 		def read_document(
@@ -30,12 +28,10 @@ functools.partial 作用是冻结函数的部分参数，生成一个参数更�
 	research_node = functools.partial(agent_node_run, agent=research_agent, name="webscraper")
 	创建了一个新函数 research_node，它只需要接收state参数，因为agent和name已被固定。
 
-
 代码例子：
 定义Agent访问web和写入文件的工具，定义一些实用程序来帮助创建图形和Agent
 创建和定义每个团队(网络研究+文档写作)，把一切都组合在一起。
 每个团队将由一名或多名gent组成，每个Agent都有一个或多个工具。
-
 
 **1. Customizing langgraph-supervisor-py**
 https://github.com/langchain-ai/langgraph-supervisor-py?tab=readme-ov-file#how-to-customize
@@ -53,8 +49,22 @@ https://langchain-ai.github.io/langgraph/reference/supervisor/
 https://langchain-ai.github.io/langgraph/tutorials/multi_agent/agent_supervisor/#3-create-supervisor-from-scratch
 → Step-by-step guide to building a custom supervisor for multi-agent systems, including worker agent setup and task delegation logic.
 """
-#------------------ 公共服务函数 -----------------------
+import functools
+import operator
+from typing import Annotated, List, Dict, Optional
+from langchain_core.messages import BaseMessage, HumanMessage
+from langchain_community.tools.tavily_search import TavilySearchResults
+from langchain_core.tools import tool
+from langchain_openai.chat_models import ChatOpenAI
+from langgraph.prebuilt import create_react_agent
+from langgraph.graph import END, StateGraph, START
+from langchain.output_parsers.openai_functions import JsonOutputFunctionsParser
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.messages import trim_messages
+from typing_extensions import TypedDict
 
+
+#------------------ 公共服务函数 -----------------------
 llm = ChatOpenAI(model="gpt-4o-mini")
 
 # 消息历史裁剪器，用于控制输入模型的 token 数量（避免超出上下文窗口限制）
@@ -98,7 +108,7 @@ def agent_node_run(state, agent, name):
 
 #主管定义函数，可以创建子团队的主管，也可以创建大主管
 #定义一个主管，并执行路由操作，返回下一节点的节点名
-def create_team_supervisor(llm: ChatOpenAl, system_prompt, members) -> str:
+def create_team_supervisor(llm: ChatOpenAI, system_prompt, members) -> str:
 	"""An LLM-based router ."""
 	options = ["FINISH"] + members
 	"""
@@ -129,13 +139,13 @@ def create_team_supervisor(llm: ChatOpenAl, system_prompt, members) -> str:
 	prompt = ChatPromptTemplate.from_messages(
 		[
 			("system", system_prompt),
-			Messagesplaceholder(variable_name="messages"),
+			MessagesPlaceholder(variable_name="messages"),
 			(
 				"system",
 				"Given the conversation above, who should act next? or should we FINISH? Select one of: {options}",
 			)
 		]
-	).partial(options=", ".join(options))
+	).partial(options=str(options))
 	return (
 		prompt | trimmer
 		| llm.bind_tools(tools=[function_def], tool_choice="route")
@@ -146,20 +156,15 @@ def create_team_supervisor(llm: ChatOpenAl, system_prompt, members) -> str:
 
 #---------------- 建立访问web 网络研究团队 --------------------
 
-import functools
-import operator
-from angchaincore.messages import BaseMessage, HumanMessage
-from langchain_openai.chat_models import ChatOpenAI
-from langgraph.prebuilt import create_react_agent
-
 #需要 api_key, 不然会报错
-tavi1y_tool =TavilySearchResults(max_results=5)
+tavily_tool = TavilySearchResults(max_results=5)
 
 # 网页转 doc 工具
 @tool
 def scrape_webpages(urls: List[str]) -> str:
 	"""Use requests and bs4 to scrape the provided web pages for detailed information."""
-	loader = webBaseLoader(ur1s)
+	from langchain_community.document_loaders import WebBaseLoader
+	loader = WebBaseLoader(urls)
 	docs = loader.load()
 	return "\n\n".join(
 		[
@@ -172,7 +177,7 @@ def scrape_webpages(urls: List[str]) -> str:
 class ResearchTeamState(TypedDict):
 	#A message is added after each team member finishes
 	messages: Annotated[List[BaseMessage], operator.add]
-	#The team members are tracked so they are aware of the others's ki1l-sets
+	#The team members are tracked so they are aware of the others's skill-sets
 	team_members: List[str]
 	#Used to route work. The supervisor calls a function that will update this every time it makes a decision
 	next: str
@@ -187,25 +192,25 @@ research_node = functools.partial(agent_node_run, agent=research_agent, name="we
 # 创建子团队主管
 supervisor_agent = create_team_supervisor(
 	llm,
-	"You are a supervisor tasked with managing a conversation between the following workers: Search, webScraper."
-	"Given the following user request, respond with the worker to act next, Each worker will perform a task and "
-	"respond with their results and status. when finished, respond with FINISH.",
+	"You are a supervisor tasked with managing a conversation between the following workers: Search, webScraper. "
+	"Given the following user request, respond with the worker to act next. Each worker will perform a task and "
+	"respond with their results and status. When finished, respond with FINISH.",
 	["Search", "webScraper"],
 )
-research_graph = StateGraph(ResearchTeamstate)
+research_graph = StateGraph(ResearchTeamState)
 research_graph.add_node("Search", search_node)
 research_graph.add_node("webScraper", research_node)
 research_graph.add_node("supervisor", supervisor_agent)
 
 # Define the control flow
-research_graph.add_edge("Search", "supervisor")
-research_graph.add_edge("webScraper", "supervisor")
-research_graph.add_conditiona1_edges(
+research_graph.add_edge(START, "supervisor")
+research_graph.add_conditional_edges(
 	"supervisor",
 	lambda x: x["next"],
 	{"Search":"Search", "webScraper": "webScraper", "FINISH": END},
 )
-research_graph.add_edge(START, "supervisor")
+research_graph.add_edge("Search", "supervisor")
+research_graph.add_edge("webScraper", "supervisor")
 research_graph_chain = research_graph.compile()
 
 
@@ -239,23 +244,9 @@ for s in research_chain.stream(
 使用类似的方法创建下面的文档编写团队。我们将为每个Agent提供对不同文件写入工具的访问权限。
 请注意，这里为 Agent 提供文件系统访问权限，这在所有情况下都是不安全的。
 '''
-import operator
 from pathlib import Path
-from typing import Annotated, List
-from langchain_community.document_loaders import WebBaseLoader
-from langchain_community.tools.tavily_search import TavilySearchResults
-from langchain_core.tools import too1
-from pathlib import path
 from tempfile import TemporaryDirectory
-from typing import Dict, optional
-from langchain_experimental.utilities import pythonREPL
-from typing_extensions import TypedDict
-from typing import list, optional
-from langchain.output_parsers.openai_functions import JsonOutputFunctionsParser
-from langchain_core.prompts import chatPromptTemplate, Messagesplaceholder
-from langchain_openai import ChatOpenAI
-from langgraph.graph import END, StateGraph. START
-from langchain_core.messages import HamanMessage, trim_messages
+from langchain_experimental.utilities import PythonREPL
 
 
 TEMP_DIRECTORY = TemporaryDirectory()
@@ -268,9 +259,9 @@ def create_outline(
 	file_name: Annotated[str, "File path to save the outline."],
 ) -> Annotated[str, "path of the saved outline file."]:
 	"""Create and save an outline."""
-	with(WORKING_DIRECTORY/file_name).open("w") as file:
+	with (WORKING_DIRECTORY/file_name).open("w") as file:
 		for i, point in enumerate(points):
-			file.write(f"{i + 1}, {point}\n")
+			file.write(f"{i + 1}. {point}\n")
 	return f"outline saved to {file_name}"
 
 
@@ -278,11 +269,11 @@ def create_outline(
 @tool
 def read_document(
 	file_name: Annotated[str, "File path to save the document."],
-	start: Annotated[optional[int], "The start line. Default is 0"]= None,
-	end: Annotated[optional[int], "The end line. Default is None"]= None,
+	start: Annotated[Optional[int], "The start line. Default is 0"]= None,
+	end: Annotated[Optional[int], "The end line. Default is None"]= None,
 ) -> str:
 	"""Read the specified document."""
-	with(WORKING_DIRECTORY/file_name).open("r") as file:
+	with (WORKING_DIRECTORY/file_name).open("r") as file:
 		lines = file.readlines()
 	if start is not None:
 		start = 0
@@ -296,7 +287,7 @@ def write_document(
 	file_name: Annotated[str, "File path to save the document ."],
 ) -> Annotated[str, "Path of the saved document file."]:
 	"""Create and save a text document."""
-	with(WORKING_DIRECTORY/file_name).open("w") as file:
+	with (WORKING_DIRECTORY/file_name).open("w") as file:
 		file.write(content)
 	return f"Document saved to {file_name}"
 
@@ -311,17 +302,17 @@ def edit_document(
 	],
 ) -> Annotated[str, "path of the edited document file,"]:
 	"""Edit a document by inserting text at specific line numbers."""
-	with(WRKING_DIRECTORY/file_name).open("r") as file:
+	with (WORKING_DIRECTORY/file_name).open("r") as file:
 		lines = file.readlines()
 
 	sorted_inserts = sorted(inserts.items())
 	for line_number, text in sorted_inserts:
-		if 1 <= line_number <= len(lines) - 1:
+		if 1 <= line_number <= len(lines) + 1:
 			lines.insert(line_number-1, text + "\n")
 		else:
 			return f"Error: Line number {line_number} is out of range."
 
-	with(WORKING_DIRECTORY/file_name).open("w") as file:
+	with (WORKING_DIRECTORY/file_name).open("w") as file:
 		file.writelines(lines)
 
 	return f"Document edited and saved to {file_name}"
@@ -332,7 +323,7 @@ class DocWritingState(TypedDict):
 	# This tracks the team's conversation internally
 	messages: Annotated[List[BaseMessage], operator.add]
 	# This provides each worker with context on the others' skill sets
-	team_members: str
+	team_members: List[str]
 	#This is how the supervisor tells langgraph who to work next
 	next: str
 	# This tracks the shared directory state
@@ -345,15 +336,15 @@ repl = PythonREPL()
 # 代码执行工具
 @tool
 def python_repl(
-	code: Annotated[str, "The pythan code to execute to generate your chart ."],
+	code: Annotated[str, "The python code to execute to generate your chart."],
 ):
-	"""use this to execute python code, If you want to see the output of a value,you should print it out with “print(...)`, This is visible to the user."""
+	"""Use this to execute python code. If you want to see the output of a value, you should print it out with `print(...)`. This is visible to the user."""
 	try:
 		result = repl.run(code)
 	except BaseException as e:
-		return f"failed to execute. Error: {repr(e)}"
+		return f"Failed to execute. Error: {repr(e)}"
 
-	return f"Successfully executed:\n'''pythoa\n{code}\n'''\nstdout: {result}"
+	return f"Successfully executed:\n'''python\n{code}\n'''\nstdout: {result}"
 
 
 #这将在每个 worker agent开始工作之前运行，以使他们更加了解当前的状态，及工作目录。
@@ -364,7 +355,7 @@ def prelude(state):
 		WORKING_DIRECTORY.mkdir()
 	try:
 		written_files = [
-			f.relative_to(WORKING_DIRECTORY) for f in WORKING_DIRECTORY.rglob("*”)
+			f.relative_to(WORKING_DIRECTORY) for f in WORKING_DIRECTORY.rglob("*")
 		]
 	except Exception:
 		pass
@@ -377,7 +368,7 @@ def prelude(state):
 	}
 
 
-# Injects current direry working state before each ca11
+# Injects current directory working state before each call
 doc_writer_agent = create_react_agent(llm, tools=[write_document, edit_document, read_document])
 context_aware_doc_writer_agent = prelude | doc_writer_agent
 doc_writing_node = functools.partial(
@@ -393,9 +384,8 @@ note_taking_node = functools.partial(
 chart_generating_agent = create_react_agent(llm, tools=[read_document, python_repl])
 context_aware_chart_generating_agent = prelude | chart_generating_agent
 chart_generating_node = functools.partial(
-	agent_node_run, agent=context_aware_note_taking_agent, name="chartGenerator"
+	agent_node_run, agent=context_aware_chart_generating_agent, name="chartGenerator"
 )
-
 
 #创建子团队主管
 '''
@@ -406,10 +396,10 @@ chart_generating_node = functools.partial(
 '''
 doc_writing_supervisor = create_team_supervisor(
 	llm,
-	"You are a supervisor tasked with managing a conversation between the following workers: {team_members}, "
-	"Given the following user request. respond with the worker to act next, Each worker will perform a task and respond "
-	"with their resuits and status. when finished, respond with FINISH.",
-	["Docwriter", "NoteTaker", "ChartGenerator"],
+	"You are a supervisor tasked with managing a conversation between the following workers:  Search, NoteTaker, chartGenerator. "
+	"Given the following user request, respond with the worker to act next. Each worker will perform a task and respond "
+	"with their results and status. When finished, respond with FINISH.",
+	["Search", "NoteTaker", "chartGenerator"],
 )
 
 #添加节点，添加边
@@ -421,25 +411,22 @@ authoring_graph.add_node("chartGenerator", chart_generating_node)
 authoring_graph.add_node("supervisor", doc_writing_supervisor)
 
 #Add the edges that always occur
-authoring_graph.add_edge("Docwriter", "supervisor")
-authoring_graph.add_edge("NoteTaker", "supervisor")
-authoring_graph.add_edge("chartGenerator", "supervisor")
-
+authoring_graph.add_edge(START, "supervisor")
 #Add the edges where routing applies
-authoring_graph.add_conditiona1_edges(
+authoring_graph.add_conditional_edges(
 	"supervisor",
 	lambda x: x["next"],
 	{
 		"Docwriter": "Docwriter",
 		"NoteTaker": "NoteTaker",
-		"ChartGenerator": "chartGenerator",
+		"chartGenerator": "chartGenerator",
 		"FINISH": END,
 	},
 )
-
-authoring_graph.add_edge(START, "supervisor")
+authoring_graph.add_edge("Docwriter", "supervisor")
+authoring_graph.add_edge("NoteTaker", "supervisor")
+authoring_graph.add_edge("chartGenerator", "supervisor")
 authoring_graph_chain = authoring_graph.compile()
-
 
 #以下函数在顶层图形状态之间进行互操作, 以及研究子图的状态
 #这使得每个图的状态不会混合在一起
@@ -447,14 +434,14 @@ authoring_graph_chain = authoring_graph.compile()
 # this makes it so that the states of each graph don't get intermixed
 def msg_func_doc(message: str, members: List[str]):
 	results = {
-		"messages": [HumanMessage(content=message)]
+		"messages": [HumanMessage(content=message)],
 		"team_members": ",".join(members),
 	}
 	return results
 
 #We reuse the enter/exit functions to wrap the graph
 authoring_chain = (
-	functools.partial(msg_func_doc, members=authoring_graph.nodes) | authoring_graph_chain
+	functools.partial(msg_func_doc, members=["Search", "NoteTaker", "chartGenerator"]) | authoring_graph_chain
 )
 
 #运行文档团队
@@ -473,16 +460,13 @@ for s in authoring_chain.stream(
 在这个设计中，我们执行自上而下的规划策略。我们已经创建了两个图，但必须决定如何在两者之间路由工作。
 我们将创建第三个图来编排前两个图，并添加一些连接器来定义如何在不同图之间共享此顶级状态。
 '''
-from langchain_core.messages import BaseMessage
-from langchain_openai.chat_models import ChatOpenAI
-
 
 #创建大主管
 supervisor_node = create_team_supervisor(
 	llm,
-	"You are a supervisor tasked with managing a conversation between the following teams: {team_members}, "
+	"You are a supervisor tasked with managing a conversation between the following teams: ResearchTeam, PaperWritingTeam. "
 	"Given the following user request, respond with the worker to act next. Each worker will perform a task "
-	"and respond with their results and status. when finished, respond with FINISH.",
+	"and respond with their results and status. When finished, respond with FINISH.",
 	["ResearchTeam", "PaperWritingTeam"],
 )
 
@@ -509,20 +493,19 @@ super_graph.add_node("supervisor", supervisor_node)
 #定义图形连接，控制逻辑的方式, 通过程序传播
 # Define the graph connections, which controls how the logic
 # propagates through the program
-super_graph.add_edge("ResearchTeam", "supervisor")
-super_graph.add_edge("PaperWritingTeam", "supervisor")
+super_graph.add_edge(START, "supervisor")
 super_graph.add_conditional_edges(
 	"supervisor",
 	lambda x: x["next"],
 	{
-		"PaperwritingTeam": "paperWritingTeam",
+		"PaperWritingTeam": "PaperWritingTeam",
 		"ResearchTeam": "ResearchTeam",
 		"FINISH": END,
 	},
 )
-super_graph.add_edge(START, "supervisor")
-super_graph = super_graph.compi1e()
-
+super_graph.add_edge("ResearchTeam", "supervisor")
+super_graph.add_edge("PaperWritingTeam", "supervisor")
+super_graph = super_graph.compile()
 
 #运行整个 Agent团队
 for s in super_graph.stream(
@@ -535,7 +518,7 @@ for s in super_graph.stream(
 	},
 	{"recursion_limit": 150},
 ):
-	if "_end_” not in s:
+	if "__end__" not in s:
 		print(s)
 		print("---")
 

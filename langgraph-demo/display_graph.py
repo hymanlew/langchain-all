@@ -1,17 +1,20 @@
 import os
 import subprocess
 import sys
-from langchain_core.runnables.graph import MermaidDrawMethod, CurveStyle
-import random 
+# from langchain_core.runnables.graph import MermaidDrawMethod, CurveStyle
+# from langchain_core.runnables.graph import MermaidDrawMethod
+import random
+
 
 def display_graph(graph, output_folder="output", ):
-
     #Code to visualise the graph, we will use this in all lessons
+    # API 调用其他服务渲染，Pyppeteer 进行本地渲染
+    # 这里只渲染本地，不使用其他方法
     mermaid_png = graph.get_graph(xray=1).draw_mermaid_png(
-        draw_method=MermaidDrawMethod.API, 
+        # draw_method=MermaidDrawMethod.API,
         # draw_method=MermaidDrawMethod.PYPPETEER
-        )
-        
+    )
+
     # Create output folder if it doesn't exist
     output_folder = "."
     os.makedirs(output_folder, exist_ok=True)

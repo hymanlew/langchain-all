@@ -15,80 +15,297 @@ Plan-and-Solve 认知框架
 - **执行阶段则是根据计划的步骤来实际解决问题。**
 - **总结成一句话：计划和执行的解耦。**
 """
-#导入相关的工具
-from langchain_experimental.plan_and_execute import (
-    PlanAndExecute,
-    load_agent_executor,
-    load_chat_planner,
-)
-#设置OpenA网站和SerpApi 网站提供的 AP密钥
-from langchain.chat_models import ChatOpenAl
-from dotenv import load_dotenv
-from langchain.tools import tool
+import operator
+import os
+import platform
+import subprocess
+import psutil
+from langchain.agents import create_tool_calling_agent
+from typing_extensions import TypedDict
+from langgraph.graph import StateGraph, START, END
+from langchain_openai import ChatOpenAI
+from langgraph.prebuilt import create_react_agent
+from pydantic import BaseModel, Field
+from typing import Annotated, List, Tuple, Union
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.tools import tool
 
-#用于加载环境变量, 加载.env文件中的环境变量
-load_dotenv()
 
-#库存查询
+# Define diagnostic and action tools
 @tool
-def check_inventory(flower_type: str)-> int:
-    """
-    查询特定类型花的库存数量。
-    参数:
-    - flower_type:花的类型
-    返回:
-    - 库存数量(暂时返回一个固定的数字)
-    DM MM 如
-    """
-    # 实际应用中这里应该是数据库查询或其他形式的库存检查
-    # 假设每种花都有100个单位
-    return 100
+def check_cpu_usage():
+    """Checks the actual CPU usage."""
+    cpu_usage = psutil.cpu_percent(interval=1)
+    return f"CPU Usage is {cpu_usage}%."
 
-#定价函数
+
 @tool
-def calculate_price(base_price: float, markup: float) -> float:
-    """
-    根据基础价格和加价百分比计算最终价格。
-    参数:
-    - base_price: 基础价格
-    - markup: 加价百分比
-    返回:
-    - 最终价格
-    """
-    return base_price * (1 + markup)
+def check_disk_space():
+    """Checks actual disk space."""
+    disk_usage = psutil.disk_usage('/').percent
+    return f"Disk space usage is at {disk_usage}%."
 
-# 调度函数
+
 @tool
-def schedule_delivery(order_id: int, delivery_date: str):
-    """
-    安排订单的配送
-    参数:
-    - order_id:订单编号
-    - delivery_date: 配送日期
-    返回:
-    - 配送状态或确认信息
-    """
-    # 在实际应用中这里应该是对接配送系统的过程
-    return f"订单{order_id}已安排在{delivery_date}配送"
+def check_network():
+    """Checks network connectivity by pinging a reliable server."""
+    response = subprocess.run(["ping", "-c", "1", "8.8.8.8"], stdout=subprocess.PIPE)
+    if response.returncode == 0:
+        return "Network connectivity is stable."
+    else:
+        return "Network connectivity issue detected."
 
-tools = [check_inventory, calculate_price]
 
-"""
-以上这个任务其实是一个“不可能完成的任务”，因为任务需求根本不清晰。我们来看看 Agent是会坦诚交代自己的能力不足以完成任务，还是会“自信地胡说八道”。
-"""
-# 设置大模型
-model = ChatOpenAl(temperature=0)
+@tool
+def restart_server():
+    """Restarts the server with an OS-independent approach."""
+    current_os = platform.system()
 
-#设置计划者和执行者
-planner = load_chat_planner(model)
-executor = load_agent_executor(model, tools, verbose=True)
-#初始化 Plan-and-Execute Agent
-agent = PlanAndExecute(planner=planner, executor=executor, verbose=True)
-# 运行 Agent 解决问题
-agent.run("查查玫瑰的库存然后给出出货方案!")
+    try:
+        if current_os == "Windows":
+            os.system("shutdown /r /t 0")  # Windows restart command
+        elif current_os == "Linux" or current_os == "Darwin":  # Darwin is macOS
+            os.system("sudo shutdown -r now")  # Linux/macOS restart command
+        else:
+            return "Unsupported operating system for server restart."
+        return "Server restart initiated successfully."
+    except Exception as e:
+        return f"Failed to restart server: {e}"
 
-"""
-它会先输出第一部分：计划阶段 plan，给出具体操作流程和思路。
-然后会一步步输出分行阶段 Execute 的第一步骤。
-由于上面给出的问题无法完成，所以它不会有最终的答案，只需要给出有答案的问题，它才会正常分析出答案。
-"""
+
+# Tools setup
+tools = [check_cpu_usage, check_disk_space, check_network, restart_server]
+
+# 您是一名IT诊断代理。遵循以下指南：
+# 1.按顺序检查指标：CPU->磁盘->网络
+# 2.分析阈值：
+# -CPU使用率>80%：严重
+# -磁盘空间<15%：严重
+# -网络：必须稳定
+# 3.采取行动：
+# -如果任何指标至关重要，建议重新启动服务器
+# -如果所有指标正常，报告健康状态
+# 4.除非明确需要，否则切勿重复检查
+# 5.服务器重启后，执行最后一次检查以验证改进情况
+prompt = ChatPromptTemplate.from_messages([
+    ("system", """You are an IT diagnostics agent. Follow these guidelines:
+    1. Check metrics in order: CPU -> Disk -> Network
+    2. Analysis thresholds:
+       - CPU Usage > 80%: Critical
+       - Disk Space < 15%: Critical
+       - Network: Must be stable
+    3. Take action:
+       - If any metric is critical, recommend server restart
+       - If all metrics normal, report healthy status
+    4. Never repeat checks unless explicitly needed
+    5. After server restart, perform one final check to verify improvement"""),
+    ("placeholder", "{messages}")
+])
+
+llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+agent_executor = create_tool_calling_agent(llm, tools, prompt)
+
+
+# Modified state structure to track check history and results
+class PlanExecute(TypedDict):
+    input: str
+    plan: List[str]
+    past_steps: Annotated[List[Tuple], operator.add]
+    response: str
+    checks_complete: bool
+    restart_performed: bool
+    final_check: bool
+    messages: Annotated[List[str], operator.add]  # Add messages to track each step and result
+
+
+# 检查和解决服务器问题的任务 计划类
+class Plan(BaseModel):
+    steps: List[str] = Field(description="Tasks to check and resolve server issues")
+
+
+class Response(BaseModel):
+    response: str
+
+
+class Act(BaseModel):
+    action: Union[Response, Plan] = Field(description="Action to perform")
+
+
+# 制定一个重点诊断计划：
+# 1.仅包括必要的检查
+# 2.跟踪已检查的内容
+# 3.如果超过阈值，则包括重新启动
+# 4.重启后的最后一次验证
+# 可用工具：check_cpu_usage、check_disk_space、check_network、restart_server
+planner_prompt = ChatPromptTemplate.from_messages([
+    ("system", """Create a focused diagnostic plan:
+    1. Only include necessary checks
+    2. Track what's already been checked
+    3. Include restart if thresholds exceeded
+    4. One final verification after restart
+    Available tools: check_cpu_usage, check_disk_space, check_network, restart_server"""),
+    ("placeholder", "{messages}"),
+])
+
+planner = planner_prompt | llm.bind_tools(tools).with_structured_output(Plan)
+
+# 分析当前形势并确定下一步行动：
+# 任务：｛input｝
+# 已完成的步骤：｛past_steps｝
+# 检查完成：{Checks_complete}
+# 已执行重新启动：｛Restart_performed｝
+# 最终检查：{Final_check}
+#
+# 规则：
+# 1.除非重新启动后进行验证，否则不要重复检查
+# 2.如果CPU>80%或磁盘<15%，请继续重新启动
+# 3.重新启动后，进行最后一次检查
+# 4.最终验证后结束流程
+#
+# 可用工具：
+# -check_cpu_usage
+# -check_disk_space
+# -检查网络
+# -restart_server
+replanner_prompt = ChatPromptTemplate.from_template("""
+Analyze the current situation and determine next steps:
+
+Task: {input}
+Completed steps: {past_steps}
+Checks complete: {checks_complete}
+Restart performed: {restart_performed}
+Final check: {final_check}
+
+Rules:
+1. Don't repeat checks unless verifying after restart
+2. If CPU > 80% or Disk < 15%, proceed to restart
+3. After restart, do one final check
+4. End process after final verification
+
+Available tools:
+- check_cpu_usage
+- check_disk_space
+- check_network
+- restart_server
+""")
+
+replanner = replanner_prompt | ChatOpenAI(model="gpt-4o-mini", temperature=0).with_structured_output(Act)
+
+
+# Enhanced execution step with state tracking
+async def execute_step(state: PlanExecute):
+    if not state.get("checks_complete"):
+        state["checks_complete"] = False
+    if not state.get("restart_performed"):
+        state["restart_performed"] = False
+    if not state.get("final_check"):
+        state["final_check"] = False
+
+    plan = state["plan"]
+    if not plan:
+        return state
+
+    task = plan[0]
+    tool_map = {
+        "check_cpu_usage": check_cpu_usage,
+        "check_disk_space": check_disk_space,
+        "check_network": check_network,
+        "restart_server": restart_server
+    }
+
+    if task in tool_map:
+        result = tool_map[task].invoke({})
+        state["past_steps"].append((task, result))
+        state["messages"].append(f"Executed {task}: {result}")  # Log the message here
+        state["plan"] = state["plan"][1:]
+
+        # Update state flags based on actions
+        if task == "restart_server":
+            state["restart_performed"] = True
+        elif state["restart_performed"] and not state["final_check"]:
+            state["final_check"] = True
+
+        # Check if all initial checks are complete
+        if len(state["past_steps"]) >= 3 and not state["checks_complete"]:
+            state["checks_complete"] = True
+
+    return state
+
+
+# Initial planning step
+async def plan_step(state: PlanExecute):
+    plan = await planner.ainvoke({"messages": [("user", state["input"])]})
+    state["plan"] = plan.steps
+    state["messages"].append(f"Planned {plan}: {plan.steps}")  # Log the message here
+    state["checks_complete"] = False
+    state["restart_performed"] = False
+    state["final_check"] = False
+    return state
+
+
+# Enhanced replanning with better decision making
+async def replan_step(state: PlanExecute):
+    output = await replanner.ainvoke(state)
+
+    if isinstance(output.action, Response):
+        return {"response": output.action.response}
+
+    # Avoid repeating checks unless doing final verification
+    if state["restart_performed"] and not state["final_check"]:
+        state["plan"] = ["check_cpu_usage", "check_disk_space", "check_network"]
+    else:
+        state["plan"] = [step for step in output.action.steps
+                         if step not in [s[0] for s in state["past_steps"]] or
+                         (state["restart_performed"] and not state["final_check"])]
+
+    return state
+
+
+# Enhanced end condition check
+def should_end(state: PlanExecute):
+    # End conditions:
+    # 1. All checks complete and no issues found
+    # 2. Restart performed and final check complete
+    # 3. Maximum steps reached (safety check)
+    if (state["checks_complete"] and not state["plan"]) or \
+            (state["restart_performed"] and state["final_check"]) or \
+            len(state["past_steps"]) > 15:  # Safety limit
+        return END
+    return "agent"
+
+
+# Build the workflow
+workflow = StateGraph(PlanExecute)
+workflow.add_node("planner", plan_step)
+workflow.add_node("agent", execute_step)
+workflow.add_node("replan", replan_step)
+
+workflow.add_edge(START, "planner")
+workflow.add_edge("planner", "agent")
+workflow.add_edge("agent", "replan")
+workflow.add_conditional_edges("replan", should_end, ["agent", END])
+
+app = workflow.compile()
+
+
+# Example usage
+async def run_plan_and_execute():
+    inputs = {
+        "input": "Diagnose the server issue and restart if necessary.",
+        "past_steps": [],
+        "checks_complete": False,
+        "restart_performed": False,
+        "final_check": False,
+        "messages": []  # Initialize an empty list for messages
+    }
+    config = {"recursion_limit": 15}
+
+    async for event in app.astream(inputs, config=config):
+        print(event)
+        print("\n\n")
+
+
+if __name__ == "__main__":
+    import asyncio
+
+    asyncio.run(run_plan_and_execute())
