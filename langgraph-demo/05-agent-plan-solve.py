@@ -147,7 +147,7 @@ planner_prompt = ChatPromptTemplate.from_messages([
     ("placeholder", "{messages}"),
 ])
 
-planner = planner_prompt | llm.bind_tools(tools).with_structured_output(Plan)
+planner = planner_prompt | llm.with_structured_output(Plan)
 
 # 分析当前形势并确定下一步行动：
 # 任务：｛input｝
@@ -189,7 +189,18 @@ Available tools:
 - restart_server
 """)
 
-replanner = replanner_prompt | ChatOpenAI(model="gpt-4o-mini", temperature=0).with_structured_output(Act)
+replanner = replanner_prompt | llm.with_structured_output(Act)
+
+
+# Initial planning step
+async def plan_step(state: PlanExecute):
+    plan = await planner.ainvoke({"messages": [("user", state["input"])]})
+    state["plan"] = plan.steps
+    state["messages"].append(f"Planned {plan}: {plan.steps}")  # Log the message here
+    state["checks_complete"] = False
+    state["restart_performed"] = False
+    state["final_check"] = False
+    return state
 
 
 # Enhanced execution step with state tracking
@@ -232,17 +243,6 @@ async def execute_step(state: PlanExecute):
     return state
 
 
-# Initial planning step
-async def plan_step(state: PlanExecute):
-    plan = await planner.ainvoke({"messages": [("user", state["input"])]})
-    state["plan"] = plan.steps
-    state["messages"].append(f"Planned {plan}: {plan.steps}")  # Log the message here
-    state["checks_complete"] = False
-    state["restart_performed"] = False
-    state["final_check"] = False
-    return state
-
-
 # Enhanced replanning with better decision making
 async def replan_step(state: PlanExecute):
     output = await replanner.ainvoke(state)
@@ -275,6 +275,13 @@ def should_end(state: PlanExecute):
 
 
 # Build the workflow
+"""
+计划-执行 Agent：
+PlanExecute 状态含：用户输入，计划步骤，已完成步骤，是否完成，是否需要重启，结束检查，消息列表
+plan_step 制定诊断计划，先检查再计划 prompt + llm + tools
+execute_step 依据计划步骤分别调用对应工具，将结果放入状态中
+replan_step 分析当前形势并确定再下一步的行动，继续调用工具或返回结果
+"""
 workflow = StateGraph(PlanExecute)
 workflow.add_node("planner", plan_step)
 workflow.add_node("agent", execute_step)
@@ -284,7 +291,6 @@ workflow.add_edge(START, "planner")
 workflow.add_edge("planner", "agent")
 workflow.add_edge("agent", "replan")
 workflow.add_conditional_edges("replan", should_end, ["agent", END])
-
 app = workflow.compile()
 
 
@@ -307,5 +313,4 @@ async def run_plan_and_execute():
 
 if __name__ == "__main__":
     import asyncio
-
     asyncio.run(run_plan_and_execute())
