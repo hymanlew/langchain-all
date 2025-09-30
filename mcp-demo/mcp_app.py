@@ -8,23 +8,52 @@
 **LangGraph Prebuilt ReAct Agent (create_react_agent)**
 https://langchain-ai.github.io/langgraph/reference/agents/#langgraph.prebuilt.chat_agent_executor.create_react_agent
 """
-from typing import List, Dict, Optional
-
-from langchain.agents import create_tool_calling_agent, AgentExecutor
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_mcp_adapters.client import MultiServerMCPClient
-from langchain_openai import ChatOpenAI
 import gradio as gr
 import logging
-from mcp_config import Config
+from typing import List, Dict, Optional
 # from langgraph.prebuilt import create_react_agent
+from langchain.agents import create_tool_calling_agent, AgentExecutor
+from langchain_mcp_adapters.client import MultiServerMCPClient
+from langchain_openai import ChatOpenAI
+from langchain_tavily import TavilySearch
+from langchain_core.messages import BaseMessage, AIMessage, ToolMessage
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from typing_extensions import TypedDict
+from langgraph.graph import StateGraph
+from langgraph.graph.message import add_messages
+from langgraph.prebuilt import ToolNode
+
+from mcp_config import Config
 from fastapi import HTTPException
 from tenacity import retry, stop_after_attempt, wait_exponential
+from typing import Annotated, Literal
+from langchain_ollama import ChatOllama
+import asyncio
+
 
 # 配置日志
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
+# --- State Definition ---
+class State(TypedDict):
+    messages: Annotated[list, add_messages]
+
+
+# --- Tool Definition ---
+search_tool = TavilySearch(max_results=2, name="web_search")
+tools = [search_tool]
+tool_node = ToolNode(tools)
+
+def format_to_agent_scratchpad(messages: list[BaseMessage]) -> list[BaseMessage]:
+    scratchpad = []
+    for msg in messages:
+        if isinstance(msg, AIMessage) and msg.tool_calls:
+            scratchpad.append(msg)
+        elif isinstance(msg, ToolMessage):
+            scratchpad.append(msg)
+    return scratchpad
 
 # 初始化LLM，本地部署的
 llm = ChatOpenAI(
@@ -46,12 +75,88 @@ SYSTEM_PROMPT = """你是一个智能助手，尽可能的调用工具回答用�
 
 prompt = ChatPromptTemplate.from_messages([
     ('system', SYSTEM_PROMPT),
-    MessagesPlaceholder(variable_name='chat_history', optional=True),
-    ('human', '{input}'),
+    MessagesPlaceholder(variable_name="messages", optional=True),
     MessagesPlaceholder(variable_name='agent_scratchpad', optional=True),
 ])
 
+"""
+- 系统消息：设置代理的上下文，告诉它必须使用工具（web_search）来回答问题，不依赖内部知识。
+- messages：包含用户和AI之间的对话历史。例如，用户之前的问题和AI的回答（可能是之前的对话轮次）。
+- agent_scratchpad：在代理运行过程中记录中间步骤。例如，当代理思考要调用什么工具时，它会将工具调用的请求和工具的响应记录到agent_scratchpad中。
+这样，代理可以根据之前的工具使用情况来决定下一步行动。
+- agent_scratchpad 实际是临时存储了当前对话轮次中代理的思考过程（工具调用和结果）。这样当代理再次被调用时（在多步工具调用中），它可以看到之前
+已经做了什么工具调用以及得到了什么结果，从而决定下一步行动。
 
+带 agent_scratchpad 的工作流程，核心是 ReAct (Reasoning + Acting) 模式，它通过一个循环来工作：
+- 启动：用户提出问题。
+- 思考：LLM根据当前信息（包括已填充了历史步骤的agent_scratchpad）进行推理，决定下一步是调用工具还是给出最终答案。
+- 行动：如果决定调用工具，则生成工具名称和输入参数。
+- 观察：系统执行工具，并将结果记录为Observation。
+- 记录与循环：将本次的Thought、Action和Observation添加到agent_scratchpad中，然后整个上下文再次送入LLM，循环步骤2-4。
+- 结束：当LLM认为已经掌握足够信息时，会生成Final Answer。
+在这个过程中，agent_scratchpad 起到了 “工作记忆”或“思维链” 的关键作用，它将整个推理和执行的轨迹记录下来，使得LLM能够基于完整的上下文进行下一步决策。
+
+而 prompt 中使用不带 ️agent_scratchpad 的工作流程：
+- 绑定工具：通过 llm.bind_tools(tools) 将工具的定义“告知”LLM，使其能生成符合规范的参数。
+- 生成调用：用户提问后，LLM直接分析问题，并可能在一次响应中生成一个或多个结构化的工具调用请求（如 tool_calls）。
+- 自动执行：ToolNode（在LangGraph中）或类似的执行器会接收这些请求，自动地、并行地调用相应的工具。
+- 汇总结果：工具执行的结果会被收集起来，可以直接返回给用户，或者作为下一步LLM调用的输入。
+这种方式下，LLM的思考过程是内化的，开发者看到的是直接的“输入-工具调用-输出”。
+
+如何选择这两种方式：
+选择带 agent_scratchpad 的传统Agent (ReAct) 方式，当你的任务是：
+- 复杂且需要多步推理：例如，需要先搜索信息，再进行分析，最后进行计算。
+- 需要高透明度和可控性：你想清晰地了解AI的每一步思考和决策过程，便于调试和优化。
+= 任务步骤不确定性高：下一步要做什么，严重依赖于上一步的执行结果。
+
+选择 llm.bind_tools + ToolNode 的方式，当你的场景是：
+- 工具调用密集或可并行：例如，需要同时查询天气和搜索新闻。
+- 追求更高的执行效率：希望减少与LLM的交互次数，降低延迟。
+- 构建基于图的复杂工作流：在使用LangGraph等框架时，ToolNode可以作为一个高效的、专门化的工具执行节点。
+"""
+
+
+def agent_node(state: State):
+    agent_scratchpad = format_to_agent_scratchpad(state["messages"])
+    chain = prompt | llm.bind_tools(tools)
+    response = chain.invoke({
+        "messages": state["messages"],
+        "agent_scratchpad": agent_scratchpad
+    })
+    return {"messages": [response]}
+
+# --- Graph Definition ---
+def should_continue(state: State) -> Literal["tools", "__end__"]:
+    if state["messages"][-1].tool_calls:
+        return "tools"
+    return "__end__"
+
+
+graph = StateGraph(State)
+graph.add_node("agent", agent_node)
+graph.add_node("tools", tool_node)
+graph.set_entry_point("agent")
+graph.add_conditional_edges("agent", should_continue)
+graph.add_edge("tools", "agent")
+app = graph.compile()
+
+# --- Main Interaction Loop (Asynchronous) ---
+async def main():
+    while True:
+        user_input = await aioconsole.ainput("You: ")
+        if user_input.lower() in ["quit", "exit"]:
+            break
+
+        response = await app.ainvoke({"messages": [("human", user_input)]})
+        print(f"AI: {response['messages'][-1].content}")
+
+
+if __name__ == "__main__":
+    print("Starting chatbot with local Ollama model. Make sure Ollama is running.")
+    asyncio.run(main())
+
+
+""" -------------------- MCP_SERVER 配置 ---------------------- """
 """
 asynccontextmanager 实际是通过 MultiServerMCPClient 的异步上下文管理器接口隐式调用的，企业级代码中应避免直接操作底层异步原语  
 asyncio 作为运行时基础依赖，应由框架层（如 `langchain_mcp_adapters`）统一管理，而非业务代码显式引入。
@@ -144,11 +249,8 @@ def do_graph(user_input: str, chat_bot: List[Dict]) -> tuple:
 
 with gr.Blocks(title='调用MCP服务的Agent项目', css=Config.CSS) as instance:
     gr.Label('调用MCP服务的Agent项目', container=False)
-
     chatbot = gr.Chatbot(type='messages', height=450, label='AI客服')  # 聊天记录组件
-
     input_textbox = gr.Textbox(label='请输入你的问题📝', value='')  # 输入框组件
-
     input_textbox.submit(do_graph, [input_textbox, chatbot], [input_textbox, chatbot]).then(execute_graph, chatbot, chatbot)
 
 

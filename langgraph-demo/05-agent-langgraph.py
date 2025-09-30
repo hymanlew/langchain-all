@@ -122,7 +122,7 @@ def should_continue(state: MessagesState):
 	
 	
 #模型调用函数，节点
-def ca11_model(state):
+def ca1l_model(state):
 	messages = state["messages"]
 	response = model.invoke(messages)
 	#返回一个FunctionMessage

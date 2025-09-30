@@ -244,3 +244,15 @@ ChatPDF首先读取PDF文件，将其转换为可处理的文本格式，例如t
 后续处理。这一步可以使用自然语言处理技术，如正则表达式等；
 """
 
+from langchain_core.rate_limiters import InMemoryRateLimiter
+from langchain.chat_models import ChatopenAI
+from langchain.chains import ConversationalRetrievalChain
+
+# --- Rate Limiter ---
+rate_limiter = InMemoryRateLimiter(
+    requests_per_second=0.1,  # 1 request every 10 seconds
+    check_every_n_seconds=0.1,
+    max_bucket_size=10,
+)
+llm = ChatopenAI(model="gpt-4-1106-preview", temperature=0, streaming=True, rate_limiter=rate_limiter)
+

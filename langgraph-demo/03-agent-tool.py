@@ -4,9 +4,11 @@ from langchain_core.messages import (
 	ToolMessage,
 )
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.runnables import RunnableLambda, RunnableConfig
+from langchain_core.utils.pydantic import TBaseModel
 from langgraph.graph import END, StateGraph, START
 #导入注解类型
-from typing import Annotated
+from typing import Annotated, List, Optional
 from langchain_community.tools.tavily_search import TavilySearchResults
 from langchain_core.tools import tool
 from langchain_experimental.utilities import PythonREPL
@@ -20,6 +22,7 @@ from langchain_core.tools import Tool
 import functools
 from langchain_core.messages import AIMessage
 import requests
+from pydantic import BaseModel, Field
 
 
 #定义一个函数，用于创建代理
@@ -110,13 +113,26 @@ lookup_stock = Tool.from_function(
     return_direct=False  # Return result to be processed by LLM
 )
 
+
+# 定义结构化输出 Schema
+class FinalReport(BaseModel):
+	"""智能体生成的最终报告，结构固定，便于下游系统消费。"""
+	question: str = Field(description="用户提出的原始问题")
+	summary: str = Field(description="对问题和所获信息的综合总结")
+	answer: str = Field(description="给用户的直接、清晰的答案")
+	data_sources: List[str] = Field(description="所使用的数据源或工具列表", default_factory=list)
+	confidence: str = Field(description="答案的置信度", examples=["高", "中", "低"])
+
+
 # 定义一个对象，用于在图的每个节点之间传递
 # 为每个代理和工具创建不同的节点
-class AgentState(TypedDict):
+class AgentState(BaseModel):
 	# messages 字段用于存储消息的序列，并且通过 Annotated 和 operator.add 提供了额外的信息，解释如何处
 	messages: Annotated[Sequence[BaseMessage],operator.add]
 	# sender 用于存储当前消息的发送者。通过这个字段，系统可以知道当前消息是由哪个代理生成的。
 	sender: str
+	# 最终的结构化输出
+	final_report: Optional[FinalReport]
 
 
 #辅助函数，用于为给定的代理创建节点
@@ -132,6 +148,10 @@ def agent_node(state, agent, name):
 
 
 llm = ChatOpenAI(model="gpt-4o")
+# 用于生成最终结构化答案的LLM
+structured_llm = llm.with_structured_output(FinalReport)
+
+#创建一个检索代理
 research_agent = create_agent(llm, [tavily_tool], system_message="提供准确的数据供chart_generator使用。",)
 
 #创建一个检索节点，并使用部分应用函数(partial function)
@@ -151,8 +171,14 @@ chart_node = functools.partial(agent_node, agent=chart_agent, name="chart_genera
 tools = [tavily_tool, python_repl, lookup_stock]
 tool_node = ToolNode(tools)
 
+def generate_final_output(state: AgentState):
+	"""最终输出节点：汇总所有信息，生成结构化报告。"""
+	full_conversation = state["messages"]
+	final_report = structured_llm.invoke(full_conversation)
+	return {"final_report": final_report}
+
 #任一代理都可以决定结束
-def router(state) -> Literal["call_tool","continue", "__end__"]:
+def router(state) -> Literal["call_tool", "continue", "reporter"]:
 	messages = state["messages"]
 	last_message = messages[-1]
 	
@@ -162,8 +188,7 @@ def router(state) -> Literal["call_tool","continue", "__end__"]:
 		
 	#如果已经获取到最终答案，则返回结束节点
 	if "FINAL ANSWER" in last_message.content:
-		#任何代理决定工作完成
-		return "__end__"
+		return "reporter"
 	return "continue"
 	
 	
@@ -171,32 +196,41 @@ workflow = StateGraph(AgentState)
 workflow.add_node("Researcher", research_node)
 workflow.add_node("chart_generator", chart_node)
 workflow.add_node("call_tool", tool_node)
-workflow.add_conditional_edges("Researcher", router, {"continue":"chart_generator", "call_tool":"call_tool", "__end__": END})
-workflow.add_conditional_edges("chart_generator", router, {"continue": "Researcher", "call_tool": "call_tool", "__end__": END})
+workflow.add_node("reporter", RunnableLambda(generate_final_output))
+
+workflow.add_edge(START, "Researcher")
+workflow.add_conditional_edges("Researcher", router, {"continue":"chart_generator", "call_tool":"call_tool", "reporter": "reporter"})
+workflow.add_conditional_edges("chart_generator", router, {"continue": "Researcher", "call_tool": "call_tool", "reporter": "reporter"})
 workflow.add_conditional_edges(
 	"call_tool",
 	#lambda 函数作用是从状态中获取 sender 名称，以便在条件边的映射中使用。
 	#如果 sender 是 "Researcher"，则工作流将转移到 “Researcher” 节点。
 	#如果 sender 是 "chart_generator"，则工作流将转移到 "chart_generator” 节点
 	lambda x: x["sender"],
-	{"Researcher":"Researcher", "chart_generator":"chart generator"}
+	{"Researcher":"Researcher", "chart_generator":"chart_generator"}
 )
+workflow.add_edge("reporter", END)
 
-workflow.add_edge(START, "Researcher")
 graph = workflow.compile()
 graph_png = graph.get_graph().draw_mermaid_png()
 with open("collaboration.png","wb") as f:
 	f.write(graph_png)
 
 #事件流
+input_data = AgentState(
+	messages=[HumanMessage(content="获取过去5年AI软件市场规模，然后绘制一条折线图。一旦你编写好代码，就可以完成任务。")],
+	final_report=None,
+	sender="",
+)
+config = RunnableConfig(configurable={
+        "configurable": {"thread_id": "1"},
+		# 图中最多执行的步骤数
+        "recursion_limit": 50
+    })
 events = graph.stream(
-	{
-		"messages": [
-			HumanMessage(content="获取过去5年AI软件市场规模，然后绘制一条折线图。一旦你编写好代码，就可以完成任务。")
-		],
-	},
-	# 图中最多执行的步骤数
-	{"recursion_limit": 150},
+	input_data,
+	config,
+	stream_mode="updates"
 )
 
 #打印事件流中的每个状态

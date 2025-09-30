@@ -1,6 +1,7 @@
 import csv
 from typing import Type, Optional
 import requests
+from langchain.agents import create_tool_calling_agent
 from langchain_core.callbacks import CallbackManagerForToolRun
 from langchain_core.messages import HumanMessage
 from langchain.tools.base import BaseTool
@@ -129,6 +130,7 @@ if __name__ == '__main__':
     )
 
     tools = [WeatherTool()]
+    # create_tool_calling_agent()
     agent_executor = chat_agent_executor.create_tool_calling_executor(model, tools)
 
     resp = agent_executor.invoke({'messages': [HumanMessage(content='中国的首都是哪个城市？')]})

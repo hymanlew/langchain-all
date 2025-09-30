@@ -1,4 +1,4 @@
-# 自定义 client 进行访问 fastAPI 部署的 API 服务（see 01-prompt.py）
+# 自定义 client 进行访问 fastAPI 部署的 API 服务（see base-chat-demo/chat-parse.py）
 from langserve import RemoteRunnable
 
 if __name__ == '__main__':
