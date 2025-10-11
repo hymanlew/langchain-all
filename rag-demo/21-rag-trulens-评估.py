@@ -2,12 +2,12 @@
 # 注意，安装最新版本可能出现 Failed to parse output，Returning None 错误
 # 具体看最新版本是否修复
 conda activate rag
-pip install ragas==0.1.12
+pip install ragas==0.3.6
 pip install trulens-eval
 pip install trulens trulens-apps-llamaindex trulens-providers-litellm litellm
 
 trulens支持的 provider（评估支持的大模型）: 
-htps://www.trulens.org/reference/trulens/providers/hugeingface/provider/
+https://www.trulens.org/reference/trulens/providers/huggingface/provider/
 
 ollama 本地模型支持的配置：
 https://github.com/truera/trulens/blob/main/examples/expositional/models/local_and_OSS_models/ollama_quickstart.ipynb
@@ -31,11 +31,11 @@ from llama_index.vector_stores.chroma import ChromaVectorStore
 
 def prepare_data():
 	url="https://baike.baidu.com/item/AIGC?fronModule=lemma_search-box"
-	docs = TrafilaturawebReader().load_data([ur1])
+	docs = TrafilaturaWebReader().load_data([url])
 	return docs
 
 
-#embedn保存知识到向量数据库
+#embed 保存知识到向量数据库
 def embedding_data(docs):
 	#向量数据库客户端
 	chroma_client = chromadb.EphemeralClient()
@@ -49,15 +49,15 @@ def embedding_data(docs):
 	node_parser = SimpleNodeParser.from_defaults(chunk_size=500, chunk_overlap=50)
 	
 	#创建 BAAI 的 embedding
-	embedmodel = HuggingFaceEmbedding(model_name="BAAI/bge-sma1]-zh-v1.5")
+	embed_model = HuggingFaceEmbedding(model_name="BAAI/bge-small-zh-v1.5")
 	#创建index
 	base_index = VectorStoreIndex.from_documents(
 		documents=docs,
 		transformations=[node_parser],
-		storage_context=storage_context，
-		embed.model=embed_model
+		storage_context=storage_context,
+		embed_model=embed_model
 	)
-	return base_index,embed model
+	return base_index,embed_model
 
 
 def get_llm():
@@ -68,8 +68,8 @@ def get_llm():
 	#from llamaindex.llms.dashscope import DashScope, DashScopeGenerationModels
 	#llm = DashScope(model_name=DashScopeGeneratiorModels.QWEN_MAX)
 	
-	#Ollama 本地摄型
-	llm = Ollama(mode]="qwen2:7b-instruct-g4_0", reguest_timeout=120.0)
+	#Ollama 本地模型
+	llm = Ollama(model="qwen2:7b-instruct-q4_0", request_timeout=120.0)
 	
 	#创建谷歌gemini的llm
 	#llm = Gemini()
@@ -105,14 +105,14 @@ questions = ["艾伦-图灵的论文叫什么?",
 	]
 docs = prepare_data()
 llm = get_llm()
-base_index,embed model = embedding_data()
+base_index,embed_model = embedding_data()
 query_engine = base_index.as_query_engine()
 
 #通过设置来配置 llm, embedding
-settings.llm = llm
-settings.embed_model = embed_model
-settings.num_output = 512
-settings.context_window = 3000
+Settings.llm = llm
+Settings.embed_model = embed_model
+Settings.num_output = 512
+Settings.context_window = 3000
 #settings.node_parser = SentenceSplitter(chunk_size=500, chunk_overlap=50)
 
 	
@@ -123,7 +123,7 @@ from trulens.providers.litellm import LiteLLM
 import nest_asyncio
 import numpy as np
 from trulens.apps.llamaindex import TruLlama
-from trulens,core import Feedback
+from trulens.core import Feedback
 from trulens.dashboard import run_dashboard
 
 # 索引、检索、向量数据库 chroma 是使用 llamaindex 项目代码，语料库使用百度百科的一篇文章，定义一个评估器对象和一个 provider,
@@ -134,7 +134,7 @@ def prepare_tru():
 	#设置线程的并发执行
 	nest_asyncio.apply()
 
-	#初始化数据库，用来存储prompt、reponse、中间结果等信息。
+	#初始化数据库，用来存储prompt、response、中间结果等信息。
 	session = TruSession()
 	session.reset_database()
 	return session
@@ -156,14 +156,15 @@ def prepare_feedback():
 		name="Answer Relevance" #面板标识名称
 	).on_input_output()
 
-	# 由于我们会设置检索器返回的检索结果的数量(如 simlarty_tOp_kK), 所以在计算 Context Relevance 指标时会对返回的多个上下文分数取平均值
+	# 由于我们会设置检索器返回的检索结果的数量(如 similarity_top_k), 所以在计算 Context Relevance 指标时会对返回的多个上下文分数取平均值
 	# 定义一个 Context Relevance 反馈函数:
-	context_selection = TruLlama.select_context(query_engine-llamaindex生成的查询语句)
+	context_selection = TruLlama.select_context(query_engine)  #llamaindex生成的查询语句
 	f_context_relevance = (
 		Feedback(provider.qs_relevance, name="Context Relevance")
 		.on_input()	#用户查询
 		.on(context_selection) #检索结果
 		.aggregate(np.mean) #合计所有检索结果
+	)
 
 	# 当 Groundedness 分数很低时说明 LLM 产生了幻觉，我们希望 answer 完全由 context总结(推导)出来，
 	# 当 Groundedness 的分数较高时可以排除 LLM 产生幻觉的可能性
@@ -179,7 +180,7 @@ def prepare_feedback():
 	# 评估 RAG
 	tru_recorder = TruLlama(
 		app=query_engine,
-		app_id="App_longe",
+		app_id="App_large",
 		feedbacks=[
 			f_context_relevance,
 			f_answer_relevance,

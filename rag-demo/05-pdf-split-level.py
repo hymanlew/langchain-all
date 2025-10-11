@@ -30,7 +30,8 @@ class DocumentNode:
         self.text = text
         self.level = level          # 0=根, 1=章, 2=节, ...
         self.parent_id = parent_id  # 直接父节点ID
-        self.path = f"/{self.id}" if parent_id is None else f"{parent_path}/{self.id}"
+        parent_path = f"/" if parent_id is None else f"/{parent_id}"
+        self.path = f"{parent_path}/{self.id}"
 
 def parse_hierarchical_document(content: str) -> List[DocumentNode]:
     """解析Markdown/HTML等格式的文档，返回多级节点"""
@@ -104,19 +105,17 @@ for i in tqdm(range(0, len(nodes), batch_size)):
 def get_full_hierarchy(collection: Collection, doc_root_id: str) -> Dict:
     """根据根节点ID重建完整树形结构"""
     # 第一步：查询所有属于该文档的节点
-	# 结合向量搜索和层级过滤
-	search_params = {
-		"expr": 'level == 3',  # 只搜索最底层段落
-		"anns_field": "embedding",
-		"param": {"nprobe": 128},
-		"limit": 10
-	}
-    search_params['expr'] += f' and path like "/{doc_root_id}%"'  # 利用全路径快速过滤
-    results = collection.query(
-        expr=search_params,
-        output_fields=["id", "text", "level", "parent_id"]
+    # 结合向量搜索和层级过滤
+    expr = f'level == 3 and path like "/{doc_root_id}%"'  # 只搜索最底层段落，并利用全路径快速过滤
+    results = collection.search(
+        anns_field="embedding",
+        data=None,
+        expr= expr,
+        limit=10,
+        param={"metric_type": "L2", "params": {"nprobe": 128}},
+        output_fields=["id", "text", "level", "parent_id"],
     )
-    
+
     # 第二步：构建树形结构
     tree = {}
     id_to_node = {n["id"]: n for n in results}

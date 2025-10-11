@@ -1,10 +1,3 @@
-
-"""
-# 注意，安装最新版本可能出现 Failed to parse output，Returning None 错误
-# 具体看最新版本是否修复
-conda activate rag
-pip install ragas==0.1.12
-"""
 from langchain.evaluation import load_dataset
 from langchain.evaluation import EvaluatorType
 from langchain.evaluation import RagasEvaluator
