@@ -1,0 +1,32 @@
+#!/bin/bash
+
+# docker search nvidia/cuda --filter "is-official=true"
+
+
+IMAGE=$1
+TAG=${2:-"latest"}
+ALI_REGISTRY=${3:-"registry.cn-hangzhou.aliyuncs.com"}  # 默认阿里仓库
+ALI_NAMESPACE=${4:-"my_namespace"}  # 默认命名空间
+
+
+# 检查 Docker Hub（假设是官方镜像，即 library/ 下的）
+echo "检查 Docker Hub ..."
+if curl -s "https://hub.docker.com/v2/repositories/library/$IMAGE/tags/$TAG/" | jq -e '.name != null' >/dev/null; then
+  echo "Docker Hub: 存在"
+else
+  # 如果不是官方镜像，可能是用户镜像，尝试直接检查
+  if curl -s "https://hub.docker.com/v2/repositories/$IMAGE/tags/$TAG/" | jq -e '.name != null' >/dev/null; then
+    echo "Docker Hub: 存在"
+  else
+    echo "Docker Hub: 不存在"
+  fi
+fi
+
+# 检查阿里云
+echo "检查阿里云仓库 $ALI_REGISTRY ..."
+TOKEN=$(curl -s "https://$ALI_REGISTRY/auth?service=registry" | jq -r .token)
+if curl -s -H "Authorization: Bearer $TOKEN" -I "https://$ALI_REGISTRY/v2/$ALI_NAMESPACE/$IMAGE/manifests/$TAG" | grep -q "200 OK"; then
+  echo "阿里云: 存在"
+else
+  echo "阿里云: 不存在"
+fi

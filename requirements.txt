@@ -5,18 +5,45 @@ langchain_openai==0.3.19
 langchain_ollama==0.3.3
 langchain-tavily==0.2.11
 langchain_experimental==0.3.4
+langchain-huggingface==0.3.1
+langchain-text-splitters==0.3.8
 langgraph==1.0.0a1
 pyppeteer==2.0.0
 ragas==0.3.6
+datasets>=4.2.0
 
 aiohttp == 3.12.15
 fastmcp == 2.12.3
 mcp == 1.13.1
+requests==2.32.3
+pymilvus==2.5.10
+sentence-transformers>=2.2.0
 
 pillow==11.2.1
-requests==2.32.3
 python-dotenv==1.1.0
 ujson==5.4.0
-pymilvus==2.5.10
+pandas>=2.0.0
+openpyxl>=3.1.0  # 用于 Excel 输出
+pyyaml>=6.0.0 # 配置管理
+pypdf>=3.0.0
+tqdm>=4.65.0  # 进度条显示
+
 trustcall
-yfinance
+yfinance~=0.2.65
+typing_extensions~=4.15.0
+tenacity~=9.1.2
+psycopg2~=2.9.10
+
+pandas~=2.3.2
+beautifulsoup4~=4.13.5
+grpcio~=1.67.1
+uvicorn~=0.35.0
+pydantic~=2.11.9
+
+openai~=1.107.3
+yaml~=0.2.5
+pyyaml~=6.0.2
+nest-asyncio~=1.6.0
+numpy~=2.2.6
+tqdm~=4.67.1
+sqlalchemy~=2.0.43

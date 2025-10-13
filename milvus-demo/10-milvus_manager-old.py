@@ -1,3 +1,8 @@
+
+'''
+MilvusManager 是历史性解决方案，多见于 Milvus 1.x 或早期 2.x 项目，本质是开发者补丁而非版本特性。
+MilvusManager 并非 Milvus 官方库中的标准类名，而是开发者自定义或第三方封装的工具类，用于管理 Milvus 连接和操作。其设计背景与 Milvus 版本演进密切相关
+'''
 import logging
 from milvus_manager import MilvusManager
 
