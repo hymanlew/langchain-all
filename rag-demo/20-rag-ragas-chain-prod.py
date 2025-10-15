@@ -1,23 +1,19 @@
-"""
-企业级 RAG 系统 RAGAS 评估工具
-功能：使用 RAGAS 框架对 RAG 系统进行全面评估，支持多种数据源、配置管理和结果可视化
-"""
-
 import os
 import json
-import logging
 import argparse
 from datetime import datetime
 import time
 import yaml
-from typing import Dict, List, Optional, Any, Union, Tuple
-
 import pandas as pd
+
+# Ragas 提供了修改或替换默认提示为自定义提示词，用于评估的方式。但一般使用默认即可
+from ragas.prompt import PydanticPrompt
+from typing import Dict, List, Optional, Any, Union, Tuple
 from datasets import Dataset, DatasetDict
 from langchain.prompts import ChatPromptTemplate
 from langchain.schema.runnable import RunnablePassthrough
 from langchain.schema.output_parser import StrOutputParser
-from langchain_community.vectorstores import Chroma, FAISS
+from langchain_community.vectorstores import Chroma, FAISS, Milvus
 from langchain_community.document_loaders import (
     WebBaseLoader,
     PyPDFLoader,
@@ -25,22 +21,27 @@ from langchain_community.document_loaders import (
     DirectoryLoader,
     UnstructuredFileLoader
 )
+from langchain_core.documents import Document
 from langchain_community.embeddings import HuggingFaceBgeEmbeddings, SentenceTransformerEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter, CharacterTextSplitter
 
 # 导入评估相关模块
-from ragas import evaluate
+from ragas.llms import LangchainLLMWrapper
+from ragas.embeddings import LangchainEmbeddingsWrapper
+from ragas import evaluate, EvaluationDataset
 from ragas.metrics import (
     faithfulness,
     answer_relevancy,
     context_recall,
     context_precision,
-    context_relevancy,
     answer_correctness,
     answer_similarity
 )
 from ragas.run_config import RunConfig
 from ragas.metrics.base import Metric
+from ragas.dataset_schema import SingleTurnSample, EvaluationDataset
+from ragas.messages import HumanMessage, AIMessage, ToolMessage, ToolCall
+from ragas.dataset_schema import MultiTurnSample
 
 
 class ConfigManager:
@@ -101,7 +102,7 @@ class DocumentProcessor:
         self.chunk_size = config.get("vector_store.chunk_size", 256)
         self.chunk_overlap = config.get("vector_store.chunk_overlap", 50)
         
-    def load_documents(self, sources: List[str], source_types: List[str]) -> List[Dict[str, Any]]:
+    def load_documents(self, sources: List[str], source_types: List[str]) -> List[Document]:
         """从多种数据源加载文档"""
         documents = []
         max_docs = self.config.get("data.max_documents", 1000)
@@ -152,7 +153,7 @@ class DocumentProcessor:
         # ...
         return text
     
-    def split_documents(self, documents: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def split_documents(self, documents: List[Document]) -> List[Document]:
         """将文档分割成块"""
         try:
             # 根据文档类型选择合适的文本分割器
@@ -192,23 +193,24 @@ class VectorStoreManager:
             normalize_embeddings = self.config.get("embeddings.normalize_embeddings", True)
             
             if model_name.startswith("BAAI/"):
-                return HuggingFaceBgeEmbeddings(
+                embed = HuggingFaceBgeEmbeddings(
                     model_name=model_name,
                     cache_folder=cache_folder,
                     model_kwargs={"device": "cpu"},
                     encode_kwargs={"normalize_embeddings": normalize_embeddings}
                 )
             else:
-                return SentenceTransformerEmbeddings(
+                embed = SentenceTransformerEmbeddings(
                     model_name=model_name,
                     cache_folder=cache_folder,
                     model_kwargs={"device": "cpu"}
                 )
+            return LangchainEmbeddingsWrapper(embed)
         except Exception as e:
             print(f"初始化嵌入模型失败: {e}")
             raise
     
-    def create_vector_store(self, documents: List[Dict[str, Any]]) -> Tuple[Any, Any]:
+    def create_vector_store(self, documents: List[Document]) -> Tuple[Any, Any]:
         """创建向量存储"""
         try:
             if self.vector_store_type.lower() == "chroma":
@@ -217,6 +219,7 @@ class VectorStoreManager:
                     embedding=self.embedding_model,
                     persist_directory=self.persist_directory
                 )
+                vector_store.as_retriever()
             elif self.vector_store_type.lower() == "faiss":
                 vector_store = FAISS.from_documents(
                     documents=documents,
@@ -226,6 +229,29 @@ class VectorStoreManager:
                 if not os.path.exists(self.persist_directory):
                     os.makedirs(self.persist_directory)
                 vector_store.save_local(self.persist_directory)
+            elif self.vector_store_type.lower() == "milvus":
+                # 从配置中获取 Milvus 连接参数，并初始化 MilvusManager（单例模式）
+                milvus_config = self.config.get("vector_store.milvus_config", {})
+                collection_name = milvus_config.get("collection_name", "langchain_demo")
+                alias = milvus_config.get("alias", "prod")
+
+                # 使用 LangChain 的 Milvus 类，但传入正确的连接参数
+                # 先检查集合是否存在，如果不存在则创建
+                vector_store = Milvus(
+                    embedding_function=self.embedding_model,
+                    connection_args={
+                        # alias = alias,
+                        "host": milvus_config.get("host", "localhost"),
+                        "port": milvus_config.get("port", 19530),
+                        "user": milvus_config.get("user", ""),
+                        "password": milvus_config.get("password", ""),
+                        "db_name": milvus_config.get("db_name", "default")
+                    },
+                    collection_name = collection_name
+                )
+                # 如果需要添加文档（在首次创建时）
+                if documents:
+                    vector_store.add_documents(documents)
             else:
                 raise ValueError(f"不支持的向量存储类型: {self.vector_store_type}")
             
@@ -249,6 +275,22 @@ class VectorStoreManager:
                     self.persist_directory,
                     self.embedding_model,
                     allow_dangerous_deserialization=True
+                )
+            elif self.vector_store_type.lower() == "milvus":
+                # 从配置中获取 Milvus 连接参数
+                milvus_config = self.config.get("vector_store.milvus_config", {})
+                
+                # 使用 LangChain 的 Milvus 类，但传入正确的连接参数
+                vector_store = Milvus(
+                    embedding_function=self.embedding_model,
+                    connection_args={
+                        "host": milvus_config.get("host", "localhost"),
+                        "port": milvus_config.get("port", 19530),
+                        "user": milvus_config.get("user", ""),
+                        "password": milvus_config.get("password", ""),
+                        "db_name": milvus_config.get("db_name", "default")
+                    },
+                    collection_name=milvus_config.get("collection_name", "langchain_demo")
                 )
             else:
                 raise ValueError(f"不支持的向量存储类型: {self.vector_store_type}")
@@ -278,18 +320,19 @@ class RAGEvaluator:
             
             if provider == "ollama":
                 from langchain_ollama.llms import OllamaLLM
-                return OllamaLLM(
+                llm = OllamaLLM(
                     model=model,
                     temperature=temperature
                 )
             elif provider == "openai":
                 from langchain_openai import ChatOpenAI
-                return ChatOpenAI(
+                llm = ChatOpenAI(
                     model=model,
                     temperature=temperature
                 )
             else:
                 raise ValueError(f"不支持的 LLM 提供商: {provider}")
+            return LangchainLLMWrapper(llm)
         except Exception as e:
             print(f"初始化语言模型失败: {e}")
             raise
@@ -298,12 +341,12 @@ class RAGEvaluator:
         """构建 RAG 链"""
         try:
             template = """
-您是问答任务的助理。使用以下检索到的上下文来回答问题。
-如果你不知道答案，就说你不知道。
-最多使用三句话，不超过100字，保持答案简洁。
-Question: {question}
-Context: {context}
-Answer: """
+            您是问答任务的助理。使用以下检索到的上下文来回答问题。
+            如果你不知道答案，就说你不知道。
+            最多使用三句话，不超过100字，保持答案简洁。
+            Question: {question}
+            Context: {context}
+            Answer: """
             prompt = ChatPromptTemplate.from_template(template)
             
             rag_chain = (
@@ -319,8 +362,8 @@ Answer: """
             print(f"构建 RAG 链失败: {e}")
             raise
     
-    def prepare_evaluation_dataset(self, test_cases: Optional[List[Dict[str, Any]]] = None) -> Dataset:
-        """准备评估数据集"""
+    def prepare_one_dataset(self, test_cases: Optional[List[Dict[str, Any]]] = None) -> EvaluationDataset:
+        """准备评估数据集，使用ragas的SingleTurnSample类构建现代格式的评估数据"""
         try:
             # 如果没有提供测试用例，使用默认的测试用例
             if test_cases is None:
@@ -338,51 +381,97 @@ Answer: """
                         "ground_truth": ["直接使用、Prompt、LoRA、Finetune、Train"]
                     }
                 ]
-            
-            questions = []
-            ground_truths = []
-            answers = []
-            contexts = []
-            
+
+            samples = []
+
             for test_case in test_cases:
                 question = test_case.get("question", "")
                 ground_truth = test_case.get("ground_truth", [""])
-                
                 if not question:
                     continue
                 
-                questions.append(question)
-                ground_truths.append(ground_truth)
-                
-                # 生成答案和相关上下文
+                # 生成答案和相关上下文，评估自己RAG系统的性能
                 try:
                     answer = self.rag_chain.invoke(question)
                     retrieved_docs = self.retriever.get_relevant_documents(question)
-                    
-                    answers.append(answer)
-                    contexts.append([doc.page_content for doc in retrieved_docs])
-                    
+                    contexts = [doc.page_content for doc in retrieved_docs]
+
+                    # SingleTurnSample和MultiTurnSample是Ragas为了更清晰、更结构化地表示评估数据而引入的现代方式。
+                    # 它们与传统的Dataset对象服务于同一个核心目的——为evaluate函数提供评估数据，但在数据组织和适用场景上有所不同。
+                    # 它们主要区别在于：
+                    # - SingleTurnSample 只包含一个用户输入、一个参考答案和一个生成的答案，
+                    # - MultiTurnSample 包含多个用户输入、多个参考答案和生成的答案。代表人类、AI、工具和用于评估的预期结果之间的多轮交互。适用于在更复杂的交互中表示对话式代理以便进行评估。
+
+                    # Rubrics 机制是让评估者根据多个评分标准进行多维度评分，最终取平均值作为综合得分
+                    # 评估标准，用于指导评估器如何判断RAG系统的输出质量。在实际评估过程中，这些标准会被用于对生成的回答进行多维度评分。
+                    rubrics = {
+                        "accuracy": "Correct",  # 准确性要求为"正确"
+                        "completeness": "High",  # 完整性要求为"高"
+                        "fluency": "Excellent"  # 流畅度要求为"优秀"
+                    }
+                    sample = SingleTurnSample(
+                        user_input=question,
+                        retrieved_contexts=contexts,
+                        response=answer,
+                        # reference=ground_truth[0] if ground_truth else "",  # 将列表转为字符串
+                        reference=", ".join(ground_truth) if ground_truth else "",
+                        rubrics=rubrics
+                    )
+                    samples.append(sample)
                     print(f"处理测试问题: {question[:50]}...")
                 except Exception as e:
                     print(f"处理测试问题失败: {question}, 错误: {e}")
-                    answers.append("错误: 无法生成答案")
-                    contexts.append(["错误: 无法检索相关文档"])
-            
-            # 构建评估数据集
-            data = {
-                "question": questions,
-                "answer": answers,
-                "contexts": contexts,
-                "ground_truths": ground_truths
-            }
-            
-            dataset = Dataset.from_dict(data)
-            print(f"成功准备评估数据集，包含 {len(dataset)} 个测试用例")
-            return dataset
+                    # 即使出错也创建样本，以便记录错误信息
+                    sample = SingleTurnSample(
+                        user_input=question,
+                        response="错误: 无法生成答案",
+                        retrieved_contexts=["错误: 无法检索相关文档"],
+                        reference=ground_truth[0] if ground_truth else ""
+                    )
+                    samples.append(sample)
+
+            print(f"成功准备评估数据集，包含 {len(samples)} 个测试用例")
+            return EvaluationDataset(samples=samples)
         except Exception as e:
             print(f"准备评估数据集失败: {e}")
             raise
-    
+
+    def prepare_multi_dataset(self, test_cases: Optional[List[Dict[str, Any]]] = None) -> EvaluationDataset:
+        """准备评估数据集，使用ragas的MultiTurnSample类构建现代格式的评估数据"""
+        user_message = HumanMessage(content="What's the weather like in New York City today?")
+        ai_initial_response = AIMessage(
+            content="Let me check the current weather in New York City for you.",
+            tool_calls=[ToolCall(name="WeatherAPI", args={"location": "New York City"})]
+        )
+        tool_response = ToolMessage(content="It's sunny with a temperature of 75°F in New York City.")
+        ai_final_response = AIMessage(content="It's sunny and 75 degrees Fahrenheit in New York City today.")
+        reference_response = "the current weather in real New York City"
+
+        conversation = [
+            user_message,
+            ai_initial_response,
+            tool_response,
+            ai_final_response
+        ]
+        sample = MultiTurnSample(
+            user_input=conversation,
+            reference=reference_response,
+        )
+        return EvaluationDataset(samples=[sample])
+
+    def prepare_old_dataset(self, test_cases: Optional[List[Dict[str, Any]]] = None) -> EvaluationDataset:
+        from ragas import EvaluationDataset
+        dataset = []
+        dataset.append(
+            {
+                "user_input": "query",
+                "retrieved_contexts": [],
+                "response": "response",
+                "reference": "reference"
+            }
+        )
+        return EvaluationDataset.from_list(dataset)
+
     def get_metrics_by_name(self, metric_names: List[str]) -> List[Metric]:
         """根据名称获取评估指标"""
         metric_map = {
@@ -390,7 +479,6 @@ Answer: """
             "answer_relevancy": answer_relevancy,
             "context_recall": context_recall,
             "context_precision": context_precision,
-            "context_relevancy": context_relevancy,
             "answer_correctness": answer_correctness,
             "answer_similarity": answer_similarity
         }
@@ -401,7 +489,7 @@ Answer: """
                 metrics.append(metric_map[name])
             else:
                 print(f"未知的评估指标: {name}")
-        
+
         return metrics
     
     def evaluate(self, dataset: Dataset) -> Any:
@@ -508,7 +596,8 @@ class ResultManager:
         except Exception as e:
             print(f"保存评估结果失败: {e}")
             raise
-    
+
+    # 自动生成 Markdown 格式的评估报告
     def generate_report(self, result: Any, dataset: Dataset, output_files: Dict[str, str]) -> None:
         """生成评估报告"""
         try:
@@ -518,7 +607,7 @@ class ResultManager:
                 f.write("# RAG 系统评估报告\n\n")
                 f.write(f"生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
                 f.write("## 评估摘要\n\n")
-                
+
                 # 写入评估指标摘要
                 for metric, score in result.items():
                     f.write(f"- **{metric}**: {float(score):.4f}\n")
@@ -569,10 +658,10 @@ def main():
     try:
         # 解析命令行参数
         args = parse_args()
-        
+
         # 初始化配置管理器
         config = ConfigManager(args.config)
-        
+
         # 应用命令行参数覆盖配置
         if args.output_format:
             config.config["output"]["format"] = args.output_format
@@ -614,21 +703,19 @@ def main():
             
             # 加载文档
             documents = document_processor.load_documents(sources, source_types)
-            
             if not documents:
                 print("没有加载到任何文档，无法继续执行")
                 return
             
             # 分割文档
             chunks = document_processor.split_documents(documents)
-            
             # 创建向量存储
             vector_store, retriever = vector_store_manager.create_vector_store(chunks)
         
         # 初始化 RAG 评估器
         evaluator = RAGEvaluator(config, retriever, vector_store_manager.embedding_model)
         
-        # 加载本地备好的测试用例，或直接从本地文档中生成测试数据集（但需要人工审核）@see 20-rag-ragas-评估.py
+        # 加载本地备好的测试用例，或直接从本地文档中生成测试数据集（但需要人工审核）@see 20-rag-ragas-base.py
         test_cases = None
         if args.test_cases and os.path.exists(args.test_cases):
             try:
@@ -639,7 +726,7 @@ def main():
                 print(f"加载测试用例文件失败: {e}")
         
         # 准备评估数据集
-        dataset = evaluator.prepare_evaluation_dataset(test_cases)
+        dataset = evaluator.prepare_one_dataset(test_cases)
         
         # 执行评估
         result = evaluator.evaluate(dataset)
@@ -648,16 +735,30 @@ def main():
         result_manager = ResultManager(config)
         output_files = result_manager.save_results(result, dataset)
         
-        # 生成评估报告
+        # 自动生成 Markdown 格式的评估报告
         result_manager.generate_report(result, dataset, output_files)
-        
         print("RAG 系统评估完成！")
         
     except KeyboardInterrupt:
         print("程序被用户中断")
     except Exception as e:
-        print(f"程序执行失败: {e}", exc_info=True)
+        print(f"程序执行失败: {e}")
         raise
 
+"""
+常见问题:
+Q: 评估过程中出现 `Failed to parse output` 错误怎么办？
+A: 这可能是由于知识内容中包含特殊字符导致 JSON 解析错误。请确保您的文档内容已经过清洗，移除了可能导致 JSON 解析错误的特殊字符。
+
+Q: 评估速度很慢怎么办？
+A: 评估速度受多种因素影响，包括模型大小、网络速度、计算机性能等。您可以尝试减少评估指标数量、减少测试用例数量或使用更轻量级的模型。
+
+Q: 如何选择合适的评估指标？
+A: 评估指标应根据业务需求选择：
+- 智能客服：关注上下文召回率、精度、上下文相关性、答案相关性、忠实度
+- 情感对话：关注上下文召回率、精度、上下文相关性
+- 知识问答：关注忠实度、答案相关性、上下文精度
+"""
 if __name__ == "__main__":
+    # python 20-rag-ragas-chain-prod.py --config config.yaml
     main()

@@ -1,7 +1,3 @@
-"""
-# 注意，安装最新版本可能出现 Failed to parse output，Returning None 错误
-# 具体看最新版本是否修复
-"""
 import requests
 from langchain.prompts import ChatPromptTemplate
 from langchain.schema.runnable import RunnablePassthrough
@@ -12,6 +8,20 @@ from langchain_community.embeddings import HuggingFaceBgeEmbeddings
 from langchain_community.document_loaders import WebBaseLoader
 from datasets import Dataset
 from langchain_text_splitters import RecursiveCharacterTextSplitter
+from ragas.llms import LangchainLLMWrapper
+from ragas.embeddings import LangchainEmbeddingsWrapper
+from ragas.testset import TestsetGenerator
+
+# 使用 Ollama 服务
+embeddings = HuggingFaceBgeEmbeddings(model_name="BAAI/bge-small-zh-v1.5")
+llm = ChatOpenAI(model="gwen2:7b-instruct-g4_0")
+template = """您是问答任务的助理。使用以下检索到的上下文来回答问题。
+如果你不知道答案，就说你不知道。
+最多使用三句话，不超过100字，保持答案简洁。
+Question: {question}
+Context: {context}
+Answer: """
+prompt = ChatPromptTemplate.from_template(template)
 
 
 # 从网络查询数据，建索引，构建数据集
@@ -25,25 +35,14 @@ def website_data():
 
 # embedding 知识库，保存到向量数据库
 def embedding_data(chunks):
-    rag_embeddings = HuggingFaceBgeEmbeddings(model_name="BAAI/bge-small-zh-v1.5")
-    vector_store = Chroma.from_documents(documents=chunks, embedding=rag_embeddings, persist_directory="./chroma_langchain_db")
+    vector_store = Chroma.from_documents(documents=chunks, embedding=embeddings, persist_directory="./chroma_langchain_db")
     retriever = vector_store.as_retriever()
-    return vector_store, retriever, rag_embeddings
+    return vector_store, retriever, embeddings
 
-# 使用 Ollama 服务
-llm = ChatOpenAI(model="gwen2:7b-instruct-g4_0")
-template = """您是问答任务的助理。使用以下检索到的上下文来回答问题。
-如果你不知道答案，就说你不知道。
-最多使用三句话，不超过100字，保持答案简洁。
-Question: {question}
-Context: {context}
-Answer: """
-prompt = ChatPromptTemplate.from_template(template)
-chunks = website_data()
-vector_store, retriever, embedding = embedding_data(chunks)
+def generate_testset_from_online_files():
+    chunks = website_data()
+    vector_store, retriever, embedding = embedding_data(chunks)
 
-# 生成答案
-def ragas_eval():
     rag_chain = (
         {"context": retriever, "question": RunnablePassthrough()}
         | prompt
@@ -80,7 +79,7 @@ def ragas_eval():
     }
 
     # Ragas测评需要使用标准的Datasets数据格式，因此需要提前将自定义数据集进行封装
-    # 将字典转换为数据集
+    # 传统方式：将字典转换为数据集,单轮问答评估场景,简单直接
     dataset = Dataset.from_dict(data)
     return dataset
 
@@ -106,8 +105,7 @@ def local_data(directory_path="your-directory"):
         print(f"加载本地文档时出错: {str(e)}")
         return None
 
-# 使用 ragas 0.3.6 版本生成测试数据集
-def generate_testset_from_docs(documents, llm, embeddings, test_size=10):
+def generate_testset_from_docs(documents, llm, retriever, test_size=10):
     # 使用已经定义的 RAG 链来生成问题和答案
     rag_chain = (
         {"context": retriever, "question": RunnablePassthrough()}
@@ -163,10 +161,18 @@ def generate_testset_from_local_files(directory_path="your-directory", test_size
     vector_store, retriever, embeddings = embedding_data(chunks)
     
     # 生成测试数据集
-    test_dataset = generate_testset_from_docs(chunks, llm, embeddings, test_size)
+    test_dataset = generate_testset_from_docs(chunks, llm, retriever, test_size)
     
     print(f"成功生成包含 {len(test_dataset)} 个问题的测试数据集")
     return test_dataset
+
+# -----------------------------------------------------------------------------------------------------------------
+
+from datasets import load_dataset
+def generate_testset_from_datasets(test_size=10):
+    """从在线文件生成测试数据集"""
+    eval_dataset = load_dataset("explodinggradients/earning_report_summary", split="train")
+    return eval_dataset
 
 # -----------------------------------------------------------------------------------------------------------------
 
@@ -180,7 +186,7 @@ Ragas 提供了五种评估指标包括：
 - 答案相关性(Answer relevancy)：评估生成的答案(answer)与用户问题(question)之间相关程度，是否完整地回答了所有问题
 - 上下文精度(Context precision)：评估在所有上下文(contexts)中与基本事实(ground-truth)相关的条目，是否排名较高，是否在上下文的顶部
 - 上下文召回率(Context recall)：衡量检索到的上下文(Context)与提供的真实答案(ground truth)的一致程度，是否完整，全部地召回了相关文档
-- 上下文相关性(Context relevancy)：衡量检索到的上下文(Context)的相关性，是否与用户问题(question)相关
+- 上下文相关性(Context relevancy)：衡量检索到的上下文(Context)的相关性，是否与用户问题(question)相关。在最新版本中移除了。
 
 忠实度：计算过程：
 - 使用 LLM 从答案中抽取主张。
@@ -206,28 +212,38 @@ from ragas.metrics import (
     answer_relevancy,
     context_recall,
     context_precision,
+    # context_relevancy, 已移除
 )
 
 run_config = RunConfig(
-    max_retries=10,
-    max_wait=60,
-    log_tenacity=True
+    max_retries=10, # 重试次数
+    max_wait=60, # 重试等待时间
+    log_tenacity=True # 是否记录日志
 )
 
 # -------------------------------------------------------------------------------------------------------------------
+"""
+分析指标表现并优化：
+- 如果上下文召回率低，考虑增加检索结果数量或使用更先进的检索算法
+- 如果上下文精确度低，可能需要优化检索排序或过滤无关文档
+- 如果答案正确性低，可能需要改进提示词或微调生成模型
+- 如果响应相关性低，检查提示词是否引导模型聚焦于问题
+"""
 if __name__ == "__main__":
     # 使用示例：基于本地文件生成测试数据集
     local_directory = "path/to/your/documents"
 
     # 生成测试数据集
-    test_dataset = generate_testset_from_local_files(local_directory, test_size=5)
+    web_dataset = generate_testset_from_online_files(test_size=5)
+    local_file_dataset = generate_testset_from_local_files(local_directory, test_size=5)
+    ready_dataset = generate_testset_from_datasets(test_size=5)
 
-    if test_dataset:
+    if local_file_dataset:
         # 使用生成的测试数据集进行评估
         result = evaluate(
-            dataset=ragas_eval(),
-            llm=llm,
-            embeddings=embedding,
+            dataset=local_file_dataset,
+            llm=LangchainLLMWrapper(llm),
+            embeddings=embeddings,
             run_config=run_config,
             # 根据需要写所要关注的评估指标
             metrics=[
@@ -242,4 +258,3 @@ if __name__ == "__main__":
         # 以二维表格的形式，打印出示例中的 RAGAS 分数
         df = result.to_pandas()
         print(df)
-

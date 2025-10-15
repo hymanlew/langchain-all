@@ -1,0 +1,22 @@
+[
+  {
+    "question": "艾伦图灵的论文叫什么?",
+    "ground_truth": ["计算机器与智能(Computing Machinery and Intelligence)"]
+  },
+  {
+    "question": "人工智能生成的画作在佳士得拍卖行卖了什么价格?",
+    "ground_truth": ["43.25万美元"]
+  },
+  {
+    "question": "目前企业在使用相关 AIGC 能力时，主要有哪五种方式?",
+    "ground_truth": ["直接使用、Prompt、LoRA、Finetune、Train"]
+  },
+  {
+    "question": "AIGC 的全称是什么?",
+    "ground_truth": ["生成式人工智能(Artificial Intelligence Generated Content)"]
+  },
+  {
+    "question": "大语言模型的主要特点是什么?",
+    "ground_truth": ["参数规模大、训练数据多、生成能力强、理解能力强"]
+  }
+]

@@ -1,0 +1,51 @@
+# RAG 系统 RAGAS 评估配置文件
+
+# 语言模型配置
+llm:
+  provider: "ollama"  # 可选值: ollama, openai
+  model: "gwen2:7b-instruct-g4_0"  # 模型名称
+  temperature: 0.1  # 生成温度，值越小生成内容越确定
+  max_tokens: 1024  # 最大生成 token 数
+
+# 嵌入模型配置
+embeddings:
+  model_name: "BAAI/bge-small-zh-v1.5"  # 嵌入模型名称
+  cache_folder: "./embedding_cache"  # 模型缓存目录
+  normalize_embeddings: true  # 是否对嵌入向量进行归一化
+
+# 向量存储配置
+vector_store:
+  type: "chroma"  # 可选值: chroma, faiss
+  persist_directory: "./vector_store"  # 向量存储持久化目录
+  chunk_size: 256  # 文档分割块大小
+  chunk_overlap: 50  # 文档块重叠大小
+
+# 评估配置
+evaluation:
+  # 评估指标列表，可选值: faithfulness, answer_relevancy, context_recall, context_precision, answer_correctness, answer_similarity
+  metrics: 
+    - "context_precision"
+    - "context_recall"
+    - "faithfulness"
+    - "answer_relevancy"
+  max_retries: 10  # 评估最大重试次数
+  max_wait: 60  # 每次重试最大等待时间（秒）
+  log_tenacity: true  # 是否记录重试日志
+
+# 数据配置，多数据源支持 - 支持网页、PDF、文本文件、目录等多种数据源
+data:
+  sources:  # 数据来源列表
+    - "https://baike.baidu.com/item/AIGC-box"
+  source_types:  # 数据来源类型列表，与 sources 一一对应
+    - "web"  # 可选值: web, pdf, text, directory, file
+  max_documents: 1000  # 最大加载文档数量
+
+# 输出配置
+output:
+  format:  # 输出格式列表
+    - "console"  # 控制台输出
+    - "csv"  # CSV 文件输出
+    - "json"  # JSON 文件输出
+    - "excel"  # Excel 文件输出
+  output_dir: "./evaluation_results"  # 输出目录
+  filename_prefix: "ragas_eval_"  # 输出文件名前缀
