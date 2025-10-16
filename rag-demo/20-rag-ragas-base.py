@@ -1,4 +1,6 @@
+import re
 import requests
+import bs4
 from langchain.prompts import ChatPromptTemplate
 from langchain.schema.runnable import RunnablePassthrough
 from langchain.schema.output_parser import StrOutputParser
@@ -23,10 +25,32 @@ Context: {context}
 Answer: """
 prompt = ChatPromptTemplate.from_template(template)
 
+# Pull a pre-made RAG prompt from LangChain Hub
+# prompt = hub.pull("rlm/rag-prompt")
+
+
+# format retrieved documents
+def format_docs(docs):
+    return "\n\n".join(doc.page_content for doc in docs)
+
+# remove <think> part in the text
+def remove_think_tags(text):
+    """remove <think> part in the text"""
+    cleaned_text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
+    cleaned_text = re.sub(r'\n\s*\n', '\n', cleaned_text)
+    return cleaned_text.strip()
+
 
 # 从网络查询数据，建索引，构建数据集
 def website_data():
-    loader = WebBaseLoader("https://baike.baidu.com/item/AIGC-box")
+    loader = WebBaseLoader(
+        web_paths=("https://baike.baidu.com/item/AIGC-box",),
+        bs_kwargs=dict(
+            parse_only=bs4.SoupStrainer(
+                class_=("post-content", "post-title", "post-header")
+            )
+        ),
+    )
     documents = loader.load()
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=256, chunk_overlap=50)
     chunks = text_splitter.split_documents(documents)
@@ -44,7 +68,7 @@ def generate_testset_from_online_files():
     vector_store, retriever, embedding = embedding_data(chunks)
 
     rag_chain = (
-        {"context": retriever, "question": RunnablePassthrough()}
+        {"context": retriever | format_docs, "question": RunnablePassthrough()}
         | prompt
         | llm
         | StrOutputParser()
@@ -108,10 +132,11 @@ def local_data(directory_path="your-directory"):
 def generate_testset_from_docs(documents, llm, retriever, test_size=10):
     # 使用已经定义的 RAG 链来生成问题和答案
     rag_chain = (
-        {"context": retriever, "question": RunnablePassthrough()}
+        {"context": retriever | format_docs, "question": RunnablePassthrough()}
         | prompt
         | llm
         | StrOutputParser()
+        | remove_think_tags
     )
     
     # 从文档中提取关键信息来创建问题
@@ -184,9 +209,9 @@ def generate_testset_from_datasets(test_size=10):
 Ragas 提供了五种评估指标包括：
 - 忠实度 (faithfulness)：衡量生成的答案(answer)与给定上下文(context)的事实一致性，数据一致性
 - 答案相关性(Answer relevancy)：评估生成的答案(answer)与用户问题(question)之间相关程度，是否完整地回答了所有问题
-- 上下文精度(Context precision)：评估在所有上下文(contexts)中与基本事实(ground-truth)相关的条目，是否排名较高，是否在上下文的顶部
+- 上下文精度(Context precision)：评估检索到的所有上下文(contexts)中与基本事实(ground-truth)相关的条目，是否排名较高，是否在上下文的顶部
 - 上下文召回率(Context recall)：衡量检索到的上下文(Context)与提供的真实答案(ground truth)的一致程度，是否完整，全部地召回了相关文档
-- 上下文相关性(Context relevancy)：衡量检索到的上下文(Context)的相关性，是否与用户问题(question)相关。在最新版本中移除了。
+- 上下文相关性(Context relevancy)：衡量检索到的上下文(Context)是否与用户问题(question)相关。在最新版本中移除了。
 
 忠实度：计算过程：
 - 使用 LLM 从答案中抽取主张。
