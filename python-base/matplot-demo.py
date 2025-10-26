@@ -1,4 +1,5 @@
 import numpy as np
+# 绘制各类可视化图形
 import matplotlib.pyplot as plt
 
 a = np.arange(100).reshape(5, 20)
@@ -136,8 +137,8 @@ print("前10个数据:", data[:10])
 # 可视化
 plt.hist(data, bins=30, alpha=0.7, edgecolor='black')
 plt.title("均匀分布 Uniform Distribution")
-plt.xlabel("数值")
-plt.ylabel("频数")
+plt.xlabel("数值", fontproperties='SimHei', fontsize=14)
+plt.ylabel("频数", fontproperties='SimHei', fontsize=14)
 plt.show()
 
 """
@@ -159,6 +160,9 @@ print("自定义正态分布前10个:", data_custom[:10])
 
 # 可视化对比
 plt.figure(figsize=(12, 5))
+
+# 将整个区域划分为多个子区域，参数依次是行数，列数，绘图所在的区域号
+# 如下表示 1 行 2 列，就是左右两个区域，是在 1 号区域（左边）画图
 plt.subplot(1, 2, 1)
 plt.hist(data_std, bins=30, alpha=0.7, edgecolor='black')
 plt.title("标准正态分布 (μ=0, σ=1)")
@@ -168,7 +172,6 @@ plt.subplot(1, 2, 2)
 plt.hist(data_custom, bins=30, alpha=0.7, edgecolor='black')
 plt.title("自定义正态分布 (μ=50, σ=10)")
 plt.xlabel("数值")
-
 plt.tight_layout()
 plt.show()
 
@@ -199,6 +202,12 @@ plt.figure(figsize=(15, 4))
 
 # 1. 每小时电话量
 plt.subplot(1, 3, 1)
+
+# 当只有一个参数（数据数组）时，此数据是作为 Y 轴的数据，X 轴是数据对应的索引值
+# 当有两个以上参数时，表示 X/Y 轴数据列表或数组，是按照 X 轴和 Y 轴的顺序绘制数据点
+# format string，表示画线的格式字符串，可选。
+# **kwargs，第二组或更多 (x,y,format string)
+# plt.plot(x, y, format, **kwargs)
 plt.plot(range(24), calls_per_hour, 'o-', color='blue', markersize=4)
 plt.xlabel('小时')
 plt.ylabel('电话量')
@@ -223,3 +232,19 @@ plt.grid(True, alpha=0.3)
 
 plt.tight_layout()
 plt.show()
+
+
+import matplotlib
+
+# 设置全局的字休，风格（正常/斜体），字号
+matplotlib.rcParams['font.family'] = 'SimHei'
+matplotlib.rcParams['font.style'] = 'normal'
+matplotlib.rcParams['font.size'] = 12
+plt.xlabel('汉字')
+
+# 设定网格（行，列），选中网格（行，列），选中的区域占列的数量，选中的区域占行的数量，编号从0开始。
+# plt.subplot2grid(GridSpec, CurSpec, colspan=l, rowspan=1)
+# 如下有 3 行 3 列的风格，在第 2 行第 1 列画图（对应索引 1，0），并占两列。即1x2的区域
+plt.subplot2grid((3,3),(1,0),colspan=2)
+
+# plt.savefig('file-name', dpi=600)，输出图形为文件，默认PNG格式，dpi 表示输出质量（类似像素值）

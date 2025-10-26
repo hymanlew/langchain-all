@@ -160,8 +160,11 @@ a = a / b
 # np.copysign(x,y)，将数组y中各元素值的符号赋值给数组x对应的元素
 # > < >= <= == !=，算术比较，产生布尔型数组，每个元素对应着一个 bool
 
-
-
+# axis 为整数或元组（指定数组中的维度），None 则表示对数组中所有元素计算
+# np.sum(a,axis=None)，根据给定轴 axis 维度，计算数组 a 中所有元素之和
+# average(a,axis=None,weights-None)
+# std(a,axis-None)
+# var(a,axis=None)
 
 
 print(a)
