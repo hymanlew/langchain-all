@@ -225,6 +225,9 @@ from langchain_core.runnables import RunnableLambda
 # router chain
 full_chain = router | RunnableLambda(choose_route)
 
+# RunnableLambda 用于将 python 函数转换为可运行节点。转化后的节点可以像任何其它Runnable一样组合并与LangChain链无缝集成。
+但需要注意: RunnableLambda适合非流式输出，如果要流式输出请使用 RunnableGenerator。
+
 # run
 question = """Why doesn't the following code work:
 

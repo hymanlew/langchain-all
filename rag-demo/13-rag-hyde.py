@@ -56,8 +56,8 @@ generate_queries = (
     prompt_rewrite
     | llm
     | StrOutputParser()
-    | remove_think_tags
-    | (lambda x: x.split("\n"))
+    | RunnableLambda(remove_think_tags)
+    | RunnableLambda(lambda x: x.split("\n"))
 )
 
 def get_unique_union(documents: list[list]):

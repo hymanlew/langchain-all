@@ -6,6 +6,7 @@ from langchain_core.messages import HumanMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.runnables import RunnableWithMessageHistory
 from langchain_openai import ChatOpenAI, OpenAI
+from langchain.chat_models import init_chat_model
 import asyncio
 
 llm = ChatOpenAI(model="gpt-4")
