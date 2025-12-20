@@ -390,8 +390,15 @@ async def main():
             "audit_logger": AuditLogMiddleware(service_name='config'), # 注入审计中间件
             "input_checker": BusinessContextMiddleware(), # 注入中间件
         },
-        recursion_limit=20  # 防止无限循环的重要防护[citation:2]
+        recursion_limit=20  # 防止无限循环的重要防护
     )
+    """
+    在LangGraph中，recursion_limit 用于控制图中节点之间或整个图的递归调用次数，防止无限递归。
+    当达到递归限制时，会抛出RecursionError异常。
+    在生产环境中不能用它，因为需要更优雅地处理这种情况，比如给出用户友好的提示，或者将对话转给人工客服。实现方案：
+    - 自己在状态中维护一个计数器，并在每个节点中检查它，并在达到阈值时主动终止或转移。
+    - 在每个节点中检查状态中的执行次数，如果超过限制，则返回一个特定的状态，然后通过路由函数跳转到结束节点，或者跳转到一个处理超限的节点
+    """
 
     # 第一轮对话：触发动态提示词和工具调用
     print("用户: 我的客户ID是CUST-1001，我想查一下我的余额，然后订购3个产品PROD-xyz。")
