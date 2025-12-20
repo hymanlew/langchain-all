@@ -15,6 +15,13 @@ from langgraph.types import Send, Command
 active_agent: 存储当前活动智能体的名称
 add_active_agent_router 函数负责实现此动态路由
 create_handoff_tool 函数创建移交工具
+
+Send 先行通知：当主控（planner）调用 handoff_to_flight_expert 时，Send 指令会首先向 flight_expert 节点发送一个包含任务详情的 ToolMessage。这个通知会加入执行队列，但不会中断当前主控节点的继续执行。
+Command 完成跳转：紧接着，Command(goto="flight_expert") 执行，它会更新状态（添加上下文），并将图的当前执行点强制跳转到 flight_expert 节点。
+专家处理与返回：flight_expert 节点开始执行时，不仅能从共享状态中获取对话历史，还会处理之前通过 Send 收到的那个专属通知消息。专家完成任务后，通过自身的移交工具（handoff_to_planner）将控制权和结果再交还给主控。
+
+简单跳转，移交上下文：直接使用 Command(goto=..., update=...)。这是最常见、最直接的Handoff方式。
+复杂协作，预先通信：如果需要移交前“打招呼”、或向多个节点广播信息，可结合 Send。例如，在主控移交前，同时Send通知日志记录节点和下一个执行节点。
 """
 # ========== 1. 定义Swarm状态 ==========
 class SwarmState(TypedDict):
@@ -59,23 +66,35 @@ def create_handoff_tool(agent_name: str, description: str = None):
         """
 
         # 在实际企业应用中，这里可能会记录移交日志、更新工单状态等
-        tool_message = {
-            "role": "tool",
-            "name": tool_name,
-            "tool_call_id": tool_call_id,
-            "next_agent": agent_name,
-            "handoff_message": f"移交说明：{final_reply_to_user}",
-            "internal_note": f"Control handed off to {agent_name}"
-        }
+        ToolMessage(
+            content=f"主控已将任务移交给 {agent_name}, 具体要求: {final_reply_to_user}。",
+            tool_call_id=tool_call_id,
+            name=tool_name,
+            next_agent=agent_name,
+            handoff_message=f"移交说明：{final_reply_to_user}",
+            internal_note=f"Control handed off to {agent_name}"
+        )
 
+        # 使用 Send 指令，异步向目标代理发送一个准备消息
+        # 这不会立刻跳转，但目标代理会在后续收到此消息
+        send_notification = Send(
+            node=agent_name,
+            # 构造一个工具消息，携带移交说明
+            arg=[ToolMessage]
+        )
+
+        # 使用 Command 指令，准备正式跳转到目标代理
         # 状态更新 (update): 将当前信息（如对话历史、中间结果）写入图的共享状态，传递给下一个智能体。
         # 流程跳转 (goto): 指定图中下一个要执行的节点（即目标智能体），实现控制权的显式交接。
-        return Command(
+        command_transfer = Command(
             # 关键：指定下一个执行的节点（目标智能体）
             goto=agent_name,
             # 关键：更新共享状态，将移交消息加入历史
-            update={"messages": state["messages"] + [tool_message]},
+            update={"messages": state["messages"] + [ToolMessage]},
         )
+
+        # 关键：返回一个包含两个指令的列表。LangGraph 会按顺序执行它们。
+        return [send_notification, command_transfer]
 
     return handoff_to_agent
 

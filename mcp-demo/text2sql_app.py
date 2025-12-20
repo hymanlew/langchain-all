@@ -26,7 +26,7 @@ llm = ChatopenAI(
 	temperature=0,
 	model="qwen3-8b",
 	api_key="EMPTY",
-	api_base="http://localhost:6006/v1"
+	api_base="http://localhost:6006/v1",
 	# 启用深度思考模式
 	extra_body={"chat_template_kwargs": {"enable_thinking": True}},
 )
