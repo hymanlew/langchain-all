@@ -4,12 +4,46 @@
 | **触发方式** | 由条件边函数**自动返回**                     | 在调用 `graph.invoke()` 或 `graph.stream()` 时**手动传入**   |
 | **工作机制** | 根据数据（如列表）动态生成多个任务分支，并行执行 | 与 `interrupt()` 函数配合，用于提供恢复所需的值或指定下一个节点 |
 | **应用场景** | 批量处理文档、并行调用API、多主题内容生成      | 人工审核、编辑状态、多轮对话验证等“人在环路”场景             |
-"""
-import json
-import operator
-import os
-from typing import TypedDict, Annotated
 
+Send指令的核心特点和使用场景：
+
+1. 异步通知：Send会在当前节点执行过程中，异步发送消息到目标节点
+2. 不中断当前执行：发送后，当前节点继续执行直到完成
+3. 消息队列：发送的消息会进入目标节点的消息队列
+4. 配合Command使用：通常Send + Command组合使用
+
+使用场景：
+
+场景1：预通知（Handoff前的打招呼）
+  当前节点 -> Send(通知目标节点) -> 继续执行 -> Command(跳转到目标节点)
+  目标节点执行时，会先收到Send的消息
+
+场景2：广播通知
+  Send(节点A) + Send(节点B) + Send(日志节点) -> Command(跳转)
+  多个节点同时收到通知
+
+场景3：并行处理
+  当前节点 -> Send(启动子任务到工作节点) -> 继续处理主任务
+  工作节点异步处理子任务
+
+场景4：状态同步
+  当多个节点需要共享信息时，可以用Send广播状态更新
+
+场景5：日志和监控
+  Send(日志节点)记录关键操作，不影响主流程
+
+与Command的区别：
+- Send: 只发送消息，不改变当前执行流程
+- Command: 改变状态和路由，控制执行流程
+
+实际例子：
+  客服转接专家：
+  1. Send(专家): "有客户需要技术支持，这是背景信息..."
+  2. Command(goto=专家): 实际转接客户
+  3. 专家收到Send的消息，了解背景
+"""
+import operator
+from typing import TypedDict, Annotated
 from langgraph.config import get_stream_writer
 from langgraph.types import Send
 from langgraph.graph import StateGraph, END, START

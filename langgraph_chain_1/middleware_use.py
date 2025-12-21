@@ -428,11 +428,3 @@ if __name__ == "__main__":
     asyncio.run(main())
 
 
-
-
-
-# 创建并添加 ToolNode，配置错误处理策略：出现异常时，向LLM发送自定义错误信息
-tool_node = ToolNode(
-        tools=TOOLS,
-        handle_tool_errors=lambda e: f"工具执行失败。系统错误信息: {str(e)}。请根据现有信息继续或建议用户联系客服。"
-    )
