@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field, field_validator
 from langchain.tools import tool
 from langchain_openai import ChatOpenAI
 import pytz  # 需要安装 pytz
+from pydantic.v1 import create_model
 
 
 # --- 1. 使用 Pydantic BaseModel 定义参数 Schema ---
@@ -73,7 +74,7 @@ class OrderQueryInput(BaseModel):
 # description：描述工具的功能，至关重要！Agent的LLM通过它理解何时调用该工具。描述应清晰说明工具的用途、适用场景和输入含义
 # return_direct：控制是否直接返回结果，默认False。为True时，工具结果将绕过Agent的思考，直接作为最终答案返回用户。适用于无需后续处理的简单查询。
 # args_schema：定义输入参数的结构化模式。用于严格定义工具接受的参数名称、类型、描述和验证规则。确保LLM生成正确的参数格式，并提供运行时验证。
-# parse_docstring：是否解析函数文档字符串，默认False。为True且infer_schema为True时，会尝试从函数的docstring中提取description和参数信息。
+# parse_docstring：是否解析函数内部的注释字符串，默认False。为True时，会尝试从函数的docstring中提取description和参数信息。
 
 # parse_docstring 在生产场景下不可用，因为它会自动收集函数中的参数，并拼接成 function-call 格式字符串。所以这种不精准，很少用
 # response_format：强制工具返回一个固定结构，比如JSON，而不是自由文本。好处是让输出变成机器可读、可预测的数据，方便后续步骤处理。
@@ -190,6 +191,8 @@ class CustomerRiskAssessmentTool(BaseTool):
         self.cache = cache or MemoryRiskCache()
         self.logger = logging.getLogger(self.__class__.__name__)
 
+        # 如果参数比较少时，没必要单独定义一个类，可直接使用 create-model 动态生成一个类
+        self.args_schema = create_model("OrderQueryInput", order_id=(str, Field(..., description='<UNK>ID<UNK>')))
         # 动态创建参数Schema类，可基于配置变化
         self.args_schema = OrderQueryInput
         self.response_format = OrderQueryOutput
