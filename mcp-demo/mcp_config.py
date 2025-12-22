@@ -31,7 +31,7 @@ class Config:
 			}
 		},
 		"nlp": {
-			"transport": "http",
+			"transport": "sse",
 			"endpoint": "https://nlp-service/api"
 		}
 	}

@@ -17,20 +17,6 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 from langchain_community.agent_toolkits import SQLDatabaseToolkit 
 from langchain community.utilities import SQLDatabase
 
-# 自定义的包
-from sql_graph.my_state import SQLState
-
-
-# 初始化LLM，本地部署的
-llm = ChatopenAI(
-	temperature=0,
-	model="qwen3-8b",
-	api_key="EMPTY",
-	api_base="http://localhost:6006/v1",
-	# 启用深度思考模式
-	extra_body={"chat_template_kwargs": {"enable_thinking": True}},
-)
-
 # 配置日志
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -44,7 +30,6 @@ class MCPService:
     2. 提供同步/异步接口
     3. 内置重试机制
     """
-    
     _instance = None
     _lock = asyncio.Lock()
     
@@ -253,6 +238,3 @@ if __name__ == '__main__':
         "share": False,
         "debug": False
     })
-	
-	
-	

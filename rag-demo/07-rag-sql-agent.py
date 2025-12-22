@@ -1,10 +1,6 @@
 import os
-
-from langchain_community.agent_toolkits import SQLDatabaseToolkit
-
-from langchain_community.utilities import SQLDatabase
+import logging
 from langchain_core.messages import SystemMessage, HumanMessage
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langgraph.prebuilt import chat_agent_executor
 
 os.environ['http_proxy'] = '127.0.0.1:7890'
@@ -12,20 +8,10 @@ os.environ['https_proxy'] = '127.0.0.1:7890'
 os.environ["LANGCHAIN_PROJECT"] = "LangchainDemo"
 os.environ["LANGCHAIN_API_KEY"] = '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'
 
-model = ChatOpenAI(model='gpt-4-turbo')
+# 配置日志
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-# 使用 sqlalchemy 库 + mysqlclient 驱动，连接 mysql
-HOSTNAME = '127.0.0.1'
-PORT = '3306'
-DATABASE = 'test_db8'
-USERNAME = 'root'
-PASSWORD = '123123'
-MYSQL_URI = 'mysql+mysqldb://{}:{}@{}:{}/{}?charset=utf8mb4'.format(USERNAME, PASSWORD, HOSTNAME, PORT, DATABASE)
-db = SQLDatabase.from_uri(MYSQL_URI)
-
-# 创建执行 sql 相关操作的工具
-toolkit = SQLDatabaseToolkit(db=db, llm=model)
-tools = toolkit.get_tools()
 
 # 使用 agent 完成整个数据库的整合
 system_prompt = """

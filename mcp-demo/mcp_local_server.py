@@ -1,4 +1,4 @@
-# text2sql_server.py
+# mcp_local_server.py
 from langchain _community.utilities import SQLDatabase
 from mcp.server.fastmcp import FastMCP
 from zhipuai import ZhipuAI
@@ -8,10 +8,6 @@ from utils.env_utils import ZHIPU_API_KEY
 mcp_server = FastMCP(name='text2sql_server',instructions='我自己的MCP服务'，port=8000)
 zhipu_client = ZhipuAI(api_key=ZHIPU_API_KEY, base_url='https://open.bigmodel.cn/api/paas/v4/')
 db = SQLDatabase.from_uri('sqlite:///../chinook.db')
-
-#toolkit = SOLDatabaseToolkit(db=db,llm=llm)
-#tools = toolkit.get tools()
-
 
 """
 - 添加工具装饰器 @xxx，并且目前主流 mcp-server 都是用 java 写的
