@@ -9,7 +9,7 @@ from langchain_community.utilities import SQLDatabase
 from langchain_community.tools import QuerySQLDataBaseTool
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder, PromptTemplate
-from langchain_core.runnables import RunnableWithMessageHistory, RunnablePassthrough
+from langchain_core.runnables import RunnableWithMessageHistory, RunnablePassthrough, RunnableLambda
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_core.tools import BaseTool
 from pydantic import create_model, Field
@@ -54,7 +54,7 @@ class MySqlManager:
         # return list(db.get_usable_table_names())
         return tools[2].invoke({})
 
-    def get_tables_schema(self) -> list[dict]:
+    def get_tables_schema(self, tables) -> list[dict]:
         return tools[1].invoke({})
 
     def execute_query(self, query) -> str:
@@ -93,16 +93,19 @@ class TableSchemaTool(BaseTool):
     def __init__(self, db_manager: MySqlManager, **kwargs):
         super().__init__(**kwargs)
         self.db_manager = db_manager
-        self.args_schema = create_model('TableSchema', name=(Optional[List[str]], Field(..., description='表名')))
+        self.args_schema = create_model('TableSchema', name=(Optional[str], Field(..., description='逗号分隔的表名')))
 
-    def _run(self, name: Optional[List[str]] = None)-> str:
+    def _run(self, name: Optional[str] = None)-> str:
         try:
-            lists = self.db_manager.get_tables_schema()
+            tables = []
+            if name:
+                tables = [n.strip() for n in name.split(',') if n.strip()]
+            lists = self.db_manager.get_tables_schema(tables)
             return ','.join([key for key, value in lists])
         except Exception as e:
             return '没有搜索到任何内容!'
 
-    async def _arun(self, name: Optional[List[str]] = None) -> str:
+    async def _arun(self, name: Optional[str] = None) -> str:
         return self._run(name)
 
 
@@ -133,6 +136,11 @@ sql_chain = sql_chain | (lambda x: x.replace('```sql', '').replace('```', ''))
 
 # 创建一个 chain 链去执行
 # assign 是拼接参数，query/result 是模板中的参数，itemgetter 是获取指定 sql 执行后的结果
+chain = (
+    RunnablePassthrough()  # 传递原始输入，在每个步骤添加数据而不覆盖
+    | RunnableLambda(lambda x: {"processed": node1(x), **x})
+    | RunnableLambda(lambda x: {"final": node2(x), **x})
+)
 # RunnablePassthrough 是代表接收用户的问题，然后再传递给 prompt 和 model。
 chain = (RunnablePassthrough.assign(query=sql_chain)
          .assign(result=itemgetter('query')
@@ -147,7 +155,7 @@ print(rep)
 
 if __name__ == '__main__':
     mysql = MySqlManager()
-    mysql.execute_query()
+    mysql.execute_query('')
 
     # tool = ListTablesTool(db_manager=mysql)
     tool = TableSchemaTool(db_manager=mysql)

@@ -1,11 +1,12 @@
 import os
+from typing import Dict, Any, cast
 
 from langchain_community.document_loaders import TextLoader
 from langchain_community.embeddings import BaichuanTextEmbeddings, HuggingFaceBgeEmbeddings
 from langchain_chroma import Chroma
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.runnables import RunnableParallel, RunnablePassthrough
+from langchain_core.runnables import RunnableParallel, RunnablePassthrough, RunnableLambda, Runnable
 from langchain_openai import ChatOpenAI
 from transformers import AutoTokenizer
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -71,6 +72,12 @@ vectorStore = Chroma(
     embedding_function=embeddings        # 需使用相同的嵌入模型
 )
 
+def rewrite_question(data: Dict[str, Any]):
+    # 调用 llm 重写问题
+    # rewrite_chain = prompt | model | output_parser
+    # return rewrite_chain.invoke({"context": "ctx", "question": "original"})
+    return 'new question'
+
 # 测试一下向量数据库
 query = '今年长三角铁路春游运输共经历多少天？'
 # docs_and_score = vectorStore.similarity_search_with_score(query)
@@ -99,7 +106,9 @@ start_retriever = RunnableParallel({'context': retriever, 'question': RunnablePa
 
 # 创建长链
 output_parser = StrOutputParser()
-chain = start_retriever | prompt | model | output_parser
+run = RunnableLambda(rewrite_question) # type: ignore
+chain = (start_retriever.assign(question=RunnableLambda(rewrite_question),question2=RunnableLambda(rewrite_question))
+         | prompt | model | output_parser)
 
 res = chain.invoke(query)
 print(res)
