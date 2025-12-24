@@ -142,42 +142,67 @@ def calculate_metrics(results_df):
     y_pred_top3 = []
     y_pred_relaxed = []
     print(f"Debug: DataFrame Columns: {results_df.columns.tolist()}")
+
+    # 处理每一行
     for _, row in results_df.iterrows():
         raw_expected = ""
         possible_keys = ['Expected_Answer', 'Expected', 'Expection', 'Expectation', 'Answer', '问题所属知识']
         for key in possible_keys:
+            # 获取每行中对应列的值
             if key in row and pd.notna(row[key]):
                 val = str(row[key]).strip()
                 if val:
                     raw_expected = val
                     break
+
+        # 获取实际的助手名称
         expected = CATEGORY_MAPPING.get(raw_expected, raw_expected)
+        # 回复的答案
         actual = row['Actual_Answer']
+        # 提取回复答案 对应的 助手名称
         preds = extract_top_agent_ids(actual)
         predicted_top1 = preds[0] if preds else extract_agent_id(actual)
+
+        # 拼装实际的助手
         y_true.append(expected)
+        # 拼装回复的助手
         y_pred_top1.append(predicted_top1)
         y_pred_top3.append(preds)
+
         if expected in preds:
             y_pred_relaxed.append(expected)
         else:
             y_pred_relaxed.append(predicted_top1)
+
+    # 真正的助手，新增/修改列
     results_df['Mapped_Expected'] = y_true
+    # 预测的助手
     results_df['Extracted_Predicted'] = y_pred_top1
     results_df['Extracted_Top3'] = ['|'.join(items) if items else '' for items in y_pred_top3]
     if 'Mapped_Expected' in results_df.columns:
+
+        # from collections import Counter
+        # list1 == list2 顺序+内容
+        # Counter(list1) == Counter(list2) 内容+个数
+        # set(list1) == set(list2) 仅内容
         results_df['Is_Correct_Top1'] = results_df['Mapped_Expected'] == results_df['Extracted_Predicted']
         def _any_ok(row):
             tops = str(row['Extracted_Top3']).split('|') if pd.notna(row['Extracted_Top3']) else []
+            # row['Mapped_Expected']
             return row['Mapped_Expected'] in tops
+
+        # Invoke function on values of Series
         results_df['Is_Correct_Any'] = results_df.apply(_any_ok, axis=1)
     else:
         results_df['Is_Correct_Top1'] = False
         results_df['Is_Correct_Any'] = False
+
     total = len(results_df)
     correct_any = results_df['Is_Correct_Any'].sum()
     accuracy_any = correct_any / total if total > 0 else 0.0
     print(f"总体准确率 (Top3-Any): {accuracy_any:.2%} ({correct_any}/{total})")
+
+    # 并集去重
     labels = sorted(list(set(y_true) | set(y_pred_relaxed)))
     metrics_data = []
     for label in labels:
@@ -281,7 +306,7 @@ def main():
                 '问题所属知识': 'Expected_Answer'
             }
             if '问题内容' in df.columns and '问题所属知识' in df.columns:
-                df.rename(columns=col_map, inplace=True)
+                df.rename(columns=col_map, axis=1, inplace=True)
             else:
                 print("未找到标准中文列名，尝试按列位置读取 (第1列=问题, 第2列=答案)...")
                 df = pd.read_excel(INPUT_EXCEL, header=None)
@@ -314,6 +339,8 @@ def main():
                     print(f"任务执行异常: {exc}")
         print("\n所有任务已完成，正在保存最终结果...")
         sorted_results = sorted(results, key=lambda x: x['Row'])
+
+        # 行列、二维的、大小可变的、可以存储多种类型数据的表格结构
         result_df = pd.DataFrame(sorted_results)
         final_df, metrics_df = calculate_metrics(result_df)
         with pd.ExcelWriter(OUTPUT_EXCEL) as writer:
