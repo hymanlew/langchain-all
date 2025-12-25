@@ -5,6 +5,7 @@ from langchain.agents import create_tool_calling_agent
 from langchain_core.callbacks import CallbackManagerForToolRun
 from langchain_core.messages import HumanMessage
 from langchain.tools.base import BaseTool
+from langchain_core.output_parsers import StrOutputParser
 from langchain_openai import ChatOpenAI
 from langgraph.prebuilt import chat_agent_executor
 from pydantic import BaseModel, Field
@@ -129,7 +130,14 @@ if __name__ == '__main__':
         base_url='https://open.bigmodel.cn/api/paas/v4/'
     )
 
-    tools = [WeatherTool()]
+    chain = model | StrOutputParser()
+    tool2 = chain.as_tool(
+        name='cn_search',
+        description='<UNK>',
+        args_schema=CalculatorInput,
+    )
+
+    tools = [WeatherTool(), tool2]
     # create_tool_calling_agent()
     agent_executor = chat_agent_executor.create_tool_calling_executor(model, tools)
 

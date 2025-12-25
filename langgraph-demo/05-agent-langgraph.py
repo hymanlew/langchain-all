@@ -12,6 +12,8 @@ from langgraph.graph import END
 from typing import TypedDict, List, Annotated
 import operator
 
+from langgraph.store.memory import InMemoryStore
+
 #创建一个ChatOpenAI对象
 model = ChatOpenAI(model="gpt-4-1106-preview", temperature=0, streaming=True)
 
@@ -105,6 +107,8 @@ class AgentState(TypedDict):
 
 
 #存储对话历史到内存中
+# 短期 checkpoint，MemorySaver
+# 长期 InMemoryStore，BaseStore
 saver = MemorySaver()
 	
 #定义节点

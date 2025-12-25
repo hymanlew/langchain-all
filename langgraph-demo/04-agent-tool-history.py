@@ -4,8 +4,13 @@
 import os
 from langchain_community.tools.tavily_search import TavilySearchResults
 from langchain_core.messages import HumanMessage, AIMessage
+from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langgraph.prebuilt import chat_agent_executor
+import openai
+from typing import List, Dict, Annotated
+
+from langgraph.types import Command
 
 os.environ['http_proxy'] = '127.0.0.1:7890'
 os.environ['https_proxy'] = '127.0.0.1:7890'
@@ -53,7 +58,7 @@ print(resp2['messages'][2].content)
 
 import requests
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.tools import tool, Tool
+from langchain_core.tools import tool, Tool, InjectedToolCallId
 from langchain.agents import AgentExecutor, create_react_agent, load_tools
 from langchain_openai import ChatOpenAI
 
@@ -67,11 +72,6 @@ class SearchInput(BaseModel):
 
 
 @tool("search-tool", args_schema=SearchInput, return_direct=False)
-def cn_search(query: str) -> str:
-    return query
-
-
-@tool
 def cn_search(query: str) -> str:
     """使用国内搜索引擎 API 进行实时搜索"""
     description = '使用国内搜索引擎 API 进行实时搜索'
@@ -200,9 +200,6 @@ print(response["output"])
 
 
 # -------------------------------------------------------
-
-import openai
-from typing import List, Dict
 
 # 1. 定义工具函数（实际业务逻辑）
 def get_weather(location: str, unit: str = "celsius") -> Dict:

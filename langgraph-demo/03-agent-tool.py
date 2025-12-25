@@ -10,11 +10,11 @@ from langgraph.graph import END, StateGraph, START
 #导入注解类型
 from typing import Annotated, List, Optional
 from langchain_community.tools.tavily_search import TavilySearchResults
-from langchain_core.tools import tool
+from langchain_core.tools import tool, InjectedToolCallId
 from langchain_experimental.utilities import PythonREPL
 #导入操作符和类型注解
 import operator
-from langgraph.prebuilt import ToolNode
+from langgraph.prebuilt import ToolNode, InjectedState
 from typing import Literal
 from typing import Annotated, Sequence, TypedDict
 from langchain_openai import ChatOpenAI
@@ -22,6 +22,7 @@ from langchain_core.tools import Tool
 import functools
 from langchain_core.messages import AIMessage
 import requests
+from langgraph.types import Command
 from pydantic import BaseModel, Field
 
 
@@ -82,7 +83,7 @@ plt.grid(True)
 plt.show()
 '''
 
-def lookup_stock_symbol(company_name: str) -> str:
+def lookup_stock_symbol(company_name: str, state: Annotated[AgentState, InjectedState]) -> str:
 	"""
     将公司名称转换为股票代码使用金融API，并获取其财务数据。
     参数:
@@ -90,6 +91,9 @@ def lookup_stock_symbol(company_name: str) -> str:
     返回:
         str: 股票代码（例如 'TSLA'）或错误信息。
     """
+	sender = state.sender
+	print(sender)
+	
 	api_url = "https://www.alphavantage.co/query"
 	params = {
 		"function": "SYMBOL_SEARCH",
@@ -112,6 +116,36 @@ lookup_stock = Tool.from_function(
     description="Converts a company name to its stock symbol using a financial API.",
     return_direct=False  # Return result to be processed by LLM
 )
+
+"""
+InjectedToolCallId 自动注入工具ID
+工具处理逻辑中，要更新 state 值，并不单单是返回工具结果
+"""
+@tool('cn_search')
+def cn_search(
+        query: str,
+        too_call_id: Annotated[str, InjectedToolCallId],
+        conf: RunnableConfig) -> Command:
+	"""使用国内搜索引擎 API 进行实时搜索"""
+	description = '使用国内搜索引擎 API 进行实时搜索'
+	url = "https://api.example.cn/search/v1"  # 替换为实际 API 地址
+	params = {
+        "key": "your_search_api_key",
+        "q": query,
+        "num": 5  # 返回结果数量
+    }
+    response = requests.get(url, params=params)
+    return Command(
+		update={
+			"sender": 'aa',
+			"messages": [
+				ToolMessage(
+					content=response.json().get("results", []),
+					tool_call_id=too_call_id
+				)
+			]
+		}
+	)
 
 
 # 定义结构化输出 Schema
@@ -191,7 +225,7 @@ def router(state) -> Literal["call_tool", "continue", "reporter"]:
 		return "reporter"
 	return "continue"
 	
-	
+
 workflow = StateGraph(AgentState)
 workflow.add_node("Researcher", research_node)
 workflow.add_node("chart_generator", chart_node)

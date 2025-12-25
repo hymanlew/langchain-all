@@ -13,6 +13,8 @@ Agent 系统中"人机交互"(Human-in-the-loop，HIL) 模式在处理需要用�
 - 更新状态: 使用 .update_state 方法，将用户的反馈更新到图的状态中
 """
 from typing import TypedDict
+
+from langchain_community.storage import RedisStore
 from typing_extensions import TypedDict as TypedDictExt
 from langgraph.graph import START, END, StateGraph
 from langgraph.types import interrupt, Command
@@ -89,22 +91,28 @@ LangGraph有一个内置持久化层，是通过检査点实现（提供内存/�
 '''
 #使用异步上下文管理器创建一个 AsyncSqliteSaver 对象，并连接到名为 "checkpoints.db"的 SQLite 数据库
 #以上是连接的数据库，还可以连接 内存-MemorySaver, SqliteSaver, RedisSaver, mongodb, PostgresSaver 等等数据库，导入相关库即可
-saver = AsncSgliteSaver.from_conn_string("checkpoints.db")
+saver = AsncSqliteSaver.from_conn_string("checkpoints.db")
 # saver = PostgresSaver.from_conn_string("postgresql://user:password@localhost:5432/your_database")
+
 # from psycopg_pool import ConnectionPool
 # pool = ConnectionPool(conninfo="postgresql://user:password@localhost:5432/your_database", max_size=20) # 设置连接池大小
 # saver = PostgresSaver(sync_connection=pool)
-# saver.setup()  # 可选：自动创建所需的表
+
+# saver.setup()  # 可选：自动创建所需的表，会清空原有的表
+# store.setup()  # 可选：自动创建所需的表，会清空原有的表
 
 #设置内存检查点
-memory = MemorySaver()
+# 短期 checkpoint，MemorySaver
+# 长期 InMemoryStore，BaseStore，PostgresStore.from_conn_string
+checkpoint = MemorySaver()
+store = RedisStore.from_conn_string("checkpoints.db")
 
 """
 检查点（Checkpoint）机制的核心作用是保存状态图执行过程中的状态快照，包含了当前所有状态通道（State Channels）的值、下一步要执行的节点信息以及相关的元数据。
 在生产环境，优先使用官方推荐的 PostgresSaver。如果想使用 MySQL 作为持久化存储，官方当前不支持，只能自定义实现：实现 BaseSaver 接口
 """
 #编译图并设置断点
-graph = builder.compile(checkpointer=memory/saver)
+graph = builder.compile(checkpointer=checkpoint, store=store)
 
 # 查看图的结构 (仅在IPython环境中可用)
 # display(Image(graph.get_graph().draw_mermaid_png()))
@@ -164,7 +172,8 @@ while True:
             #所以可以不添加此行代码，让节点内部读取反馈，然后继续执行
             # graph.update_state(config, {"user_feedback": user_response}, as_node="human_feedback")
 
-            #检查状态
+            #检查状态，获取存储的短期记忆。Get the current state of the graph
+            #get_state_history。Get the history of the state of the graph
             print("--State after update--")
             print(graph.get_state(config))
 

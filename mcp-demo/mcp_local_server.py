@@ -5,7 +5,7 @@ from zhipuai import ZhipuAI
 from utils.env_utils import ZHIPU_API_KEY
 
 
-mcp_server = FastMCP(name='text2sql_server',instructions='我自己的MCP服务'，port=8000)
+mcp_server = FastMCP(name='text2sql_server',instructions='我自己的MCP服务',port=8000,stateless_http=True)
 zhipu_client = ZhipuAI(api_key=ZHIPU_API_KEY, base_url='https://open.bigmodel.cn/api/paas/v4/')
 db = SQLDatabase.from_uri('sqlite:///../chinook.db')
 
