@@ -8,7 +8,8 @@ Agent 系统中"人机交互"(Human-in-the-loop，HIL) 模式在处理需要用�
 4，提供上下文，使 LLM 能够明确请求，明确人类的输入以进行澄清或提供额外细节，或支持多轮对话。
 
 建立一个节点以获取用户反馈。在这个过程中，开发人员需要:
-- 设置断点: 通过 interrupt_before: 指定在特定节点之前中断图的执行,
+- 设置断点: 通过 interrupt_before/interrupt_after:
+    指定在特定节点之前中断图的执行, 旧版本，主要用于调用第三方定义的节点前
 - 设置检查点: 使用 MemorySaver 来保存图的状态，以便在用户输入后恢复。
 - 更新状态: 使用 .update_state 方法，将用户的反馈更新到图的状态中
 """
@@ -168,8 +169,12 @@ while True:
             interrupted = True
 
             #更新状态，并将用户输入保存为 user_feedback
-            #注意，as_node 操作会直接替代 human_feedback 中断后的动作，即不会执行。而是直接执行下一节点
+            #注意，as_node 操作会直接替代 human_feedback 节点的动作（中断后的动作）
+            #即 human_feedback 节点自己的动作不会执行，而是以传入的 state 为中断后的动作，然后直接执行下一节点
             #所以可以不添加此行代码，让节点内部读取反馈，然后继续执行
+
+            #当不指定 as_node 时，会直接更新上一个节点的状态（messages 则是追加或覆盖）
+            #它不经过任何节点，即不替代任何节点的动作。然后再继续执行下一节点。类似 Command(upate) 指令
             # graph.update_state(config, {"user_feedback": user_response}, as_node="human_feedback")
 
             #检查状态，获取存储的短期记忆。Get the current state of the graph
