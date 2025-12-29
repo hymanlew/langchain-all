@@ -60,15 +60,21 @@ import random
 # Generate a random integer between 1 and 100
 random_number = random.randint(1, 100)
 print(random_number)
+
 # Choose a random item from a list
 options = ["apple", "banana", "cherry"]
 fruit = random.choice(options)
 print(fruit)
+
+fruit = random.choices(options, weights=[0.5, 0.2, 0.3], k=2)
+print(fruit)
+
 # 随机打乱列表中的元素顺序。需要注意，shuffle()函数会直接修改原列表，而不是返回一个新的打乱顺序的列表，
 # 它的返回值是None。
 numbers = [1, 2, 3, 4, 5]
 shuffle = random.shuffle(numbers)
 print(shuffle)
+
 # 生成一个0到1之间的随机浮点数。uniform()函数会返回指定范围内的一个随机浮点数，范围包含下限但不包含上限（即[0.0, 1.0)）。
 random_float = random.uniform(0, 1)
 print(random_float)
@@ -355,15 +361,19 @@ class Rectangle:
     def width(self):
         return self._width
 
+    @width.getter
+    def get_width(self):
+        return self._width
+
     @width.setter
-    def width(self, value):
+    def set_width(self, value):
         if value > 0:
             self._width = value
         else:
             raise ValueError("Width must be positive")
 
 re = Rectangle(5, 10)
-re.width(20)
+re.set_width(20)
 print(re.width)
 
 #61. Type hints
