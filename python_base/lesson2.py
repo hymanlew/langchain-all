@@ -357,23 +357,25 @@ class Rectangle:
         self._width = width
         self._height = height
 
+    # 定义为只读、只写或可读写
     @property
     def width(self):
         return self._width
 
-    @width.getter
-    def get_width(self):
-        return self._width
-
     @width.setter
-    def set_width(self, value):
+    def width(self, value):
         if value > 0:
             self._width = value
         else:
             raise ValueError("Width must be positive")
 
+    @width.deleter
+    def width(self):
+        del self._width
+
+
 re = Rectangle(5, 10)
-re.set_width(20)
+re.width = 20
 print(re.width)
 
 #61. Type hints
