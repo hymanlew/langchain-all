@@ -1,7 +1,6 @@
-# enterprise_rag.py
 """
 多模态分类器
-使用 Qwen2-VL模型对 ChatRequest.input 字段）先识别是否图片，否则调用微调后的语义模型
+使用 Qwen2-VL模型对 ChatRequest.input 字段先识别是否图片，否则调用微调后的语义模型
 来分析出一个值，然后比对自定义的 map 以实现文本/图像/混合内容识别
 
 混合检索集群

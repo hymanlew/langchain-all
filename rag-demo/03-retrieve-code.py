@@ -40,9 +40,6 @@ class SemanticClassifier:
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
     def classify(self, query: str) -> list:
         """使用OpenAI进行意图分类"""
-
-
-
         base_kws = self.kw_extractor(query)  # 基础关键词
 
         response = openai.ChatCompletion.create(
