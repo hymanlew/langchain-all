@@ -160,7 +160,7 @@ class BasicToolsNode:
 
     async def __call__(self, state: Dict[str, Any])-> Dict[str, List[ToolMessagel]]:
         """
-        异步调用入口
+        异步调用入口，实例对象可以像函数一样被调用
         Args:
             state: 输入字典，需包含 "messages" 字段
         Returns:

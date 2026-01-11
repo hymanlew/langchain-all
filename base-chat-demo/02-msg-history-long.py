@@ -18,7 +18,7 @@ llm = ChatOpenAI(model="gpt-4")
 - ConversationSummaryMemory：可将当前对话上下文进行总结并注入到提示中，对较长的对话进行总结时非常有用，能节省 token。字节缓存 - 对过往历史记录做摘要存储，并在新对话中提前读取这些历史上下文，无窗口
 - ConversationSummaryBufferMemory：有窗口的会话摘要
 - ConversationKGMemory：使用知识图谱来重建记忆
-- ConversationEntityMemory：使用语言横型(LLMS)提取实体相关的信息，并随着时间的推移逐渐积累对该实体的知识
+- ConversationEntityMemory：使用语言模型(LLMS)提取实体相关的信息，并随着时间的推移逐渐积累对该实体的知识
 - VectorStoreRetrieverMemory：将记忆存储在向量数据库中，并在每次调用时査询最“显著”的前 K 个文档
 '''
 
@@ -40,12 +40,45 @@ print(memory.load_memory_variables({"input": "查询的消息"}))
 from langchain.memory import ConversationBufferWindowMemory
 # 只保留最后1次互动的记忆
 memory = ConversationBufferWindowMemory(k=1)
+memory.save_context({"input": "Hello"}, {"output": "Hi there!"})
+memory.save_context({"input": "How's your day?"}, {"output": "It's great!"})
+
+result = memory.load_memory_variables({})
+print(result['history'])  # Output: ['Human: Hello', 'AI: Hi there!', 'Human: How's your day?', 'AI: It's great!']
+
+
+memory = ConversationSummaryMemory(llm=llm)
+memory.save_context({"input": "hi"}, {"output": "whats up"})
+memory.save_context({"input": "how are you?"}, {"output": "I'm fine."})
+
+result = memory.load_memory_variables({})
+print(result['history'])  # Output: '\nThe human greets the AI, to which the AI responds.'
+
+
+memory = ConversationTokenBufferMemory()
+memory.save_context({"input": "Tell me a joke"}, {"output": "Why did the chicken cross the road?"})
+memory.save_context({"input": "I don't know, why?"}, {"output": "To get to the other side!"})
+
+token_indices = [0, 1, 2]  # Indices corresponding to the first message
+result = memory.load_memory_variables({"token_indices": token_indices})
+print(result['history'])  # Output: ['Human: Tell me a joke', 'AI: Why did the chicken cross the road?']
 
 
 # --- 获取历史对话中实体信息，让 AI 记住对话中的关键实体和实体关系细节，而非全量
-memory = ConversationEntityMemory(llm=llm)
-memory.save_context({"input": "你好"}, {"output": "怎么了"})
-variables = memory.load_memory_variables({})
+class Context(BaseModel):
+    Deven: str
+    Sam: str
+
+context = Context(Deven="Deven is working on a hackathon project with Sam.",
+                  Sam="Sam is working on a hackathon project with Deven.")
+memory = ConversationEntityMemory(context=context, llm=llm)
+
+memory.save_context({"input": "Deven & Sam are working on a project"},
+                    {"output": "That sounds interesting!"})
+
+result = memory.load_memory_variables({"input": 'who is Sam'})
+print(result['history'])  # Output: 'Human: Deven & Sam are working on a project\nAI: That sounds interesting!'
+print(result['entities']['Sam'])  # Output: 'Sam is working on a hackathon project with Deven.'
 
 
 # --- 利用知识图谱获取历史对话中的实体及其联系
@@ -53,6 +86,7 @@ from langchain.memory import ConversationKGMemory
 llm = OpenAI(temperature=0)
 memory = ConversationKGMemory(llm=llm)
 memory.save_context({"input": "小李是程序员"}, {"output": "知道了，小李是程序员"})
+memory.save_context({"input": "say hi to sam"}, {"output": "who is sam"})
 variables = memory.load_memory_variables({"input": "告诉我关于小李的信息"})
 print(variables)
 # 输出 {'history': 'On 小李: 小李 is 程序员. 小李 的笔名 莫尔索.'}

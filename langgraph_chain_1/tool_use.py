@@ -1,10 +1,11 @@
-from typing import Optional, Literal, List
+from typing import Optional, Literal, List, Dict, Any
 from datetime import date, datetime
 from langchain.agents import create_agent
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator, create_model
 from langchain.tools import tool
 from langchain_openai import ChatOpenAI
 import pytz  # 需要安装 pytz
+# pydantic 一般指最新的 v2 版本，而 pydantic.v1 是为兼容旧项目提供的过渡模块。对于新项目，强烈推荐使用 pydantic (v2)
 from pydantic.v1 import create_model
 
 
@@ -51,12 +52,25 @@ class OrderQueryInput(BaseModel):
         # 可在此添加更复杂的逻辑，如校验日期部分
         return v.upper()  # 统一转为大写
 
+    # 验证或转换单个或多个字段的值
+    # 可通过 mode='before' 或 mode='after' (v2) / pre=True 或 pre=False (v1)
+    # 控制是在其他内置验证之前还是之后执行
     @field_validator('timezone')
     def validate_timezone(cls, v):
         """验证时区标识符是否有效。"""
         if v and v not in pytz.all_timezones:
             raise ValueError(f"'{v}' 不是有效的IANA时区标识符")
         return v
+
+    # 处理字段间的复杂关系或整体模型逻辑
+    # 在所有字段验证完成后，访问整个模型的已知数据，进行跨字段的复杂逻辑校验
+    # 通过 mode='before'、mode='after' 或 mode='wrap' 更精确地控制时机
+    @model_validator(mode='after')
+    def validate_after(cls, values: Dict[str, Any]) -> Dict[str, Any]:
+        if not values.get('date'):
+            raise ValueError('<UNK>date<UNK>')
+        return values
+
 
  class OrderQueryOutput(BaseModel):
     city: str = Field(..., description='查询的城市')

@@ -427,34 +427,6 @@ import subprocess
 result = subprocess.run(["echo", "Hello, LangGraph!"], capture_output=True, text=True, executable=sys.executable)
 print(result.stdout)
 
-
-#68. Pandas
-import pandas as pd
-try:
-    df = pd.read_csv("data.csv")
-    print(df.head()) # 是取出并显示 df 的前5行数据
-except FileNotFoundError:
-    print("File not found")
-
-#68. Matplotlib
-try:
-    import matplotlib.pyplot as plt
-    plt.plot([1, 2, 3, 4], [10, 20, 25, 30])
-    plt.xlabel("X-axis")
-    plt.ylabel("Y-axis")
-    plt.show()
-except Exception as e:
-    print(f"Error: {e}")
-
-#69. Seaborn 是一个基于 matplotlib 的 Python 数据可视化库，主要用于绘制统计图形。它提供了更高级的接口，
-# 能够更轻松地创建具有吸引力的统计图表，特别适合数据探索和理解数据分布、关系等。
-import seaborn as sns
-sns.set(style="darkgrid")
-tips = sns.load_dataset("tips")
-sns.scatterplot(x="total_bill", y="tip", data=tips)
-plt.show()
-
-
 #70. sqlalchemy
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker

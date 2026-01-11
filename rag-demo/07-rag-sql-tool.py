@@ -141,7 +141,7 @@ chain = (
     | RunnableLambda(lambda x: {"processed": node1(x), **x})
     | RunnableLambda(lambda x: {"final": node2(x), **x})
 )
-# RunnablePassthrough 是代表接收用户的问题，然后再传递给 prompt 和 model。
+# RunnablePassthrough 接收用户问题，顺序扩展执行，再传递给 prompt 和 model。
 chain = (RunnablePassthrough.assign(query=sql_chain)
          .assign(result=itemgetter('query')
          | execute_sql_tool)

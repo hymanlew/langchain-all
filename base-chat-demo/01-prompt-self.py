@@ -1,10 +1,45 @@
-"""
-langchain 中内置的提示词模板：
 from langchain.prompts import AIMessagePromptTemplate
-from langchain.prompts import SystemMessagePromptTemplate
-from langchain.prompts import HumanMessagePromptTemplate
-from langchain.prompts import chatMessagromptTemplate
+from langchain_core.messages import SystemMessage
+from langchain_core.prompts import (
+	SystemMessagePromptTemplate,
+	HumanMessagePromptTemplate,
+	ChatMessagePromptTemplate,
+	ChatPromptTemplate
+)
+"""
+消息类（Message Classes）：用于表示已经生成的具体消息。
+- SystemMessage
+- HumanMessage
+- AIMessage
 
+消息模板类（PromptTemplate Classes）：用于创建可重复使用的消息模板，包含变量占位符。
+- SystemMessagePromptTemplate
+- HumanMessagePromptTemplate
+
+ChatMessagePromptTemplate：可以创建任意角色的消息模板，用于创建自定义角色的消息模板。
+ChatPromptTemplate：模板容器，用于组合多个消息模板。构建复杂的对话流程。
+"""
+custom_template = ChatMessagePromptTemplate.from_template(
+    role="expert",
+    template="作为一名{expert_type}专家，我的观点是：{opinion}"
+)
+message = custom_template.format(
+    expert_type="人工智能",
+    opinion="AI将改变世界"
+)
+example_prompt = ChatPromptTemplate.from_messages(
+    [
+        ("human", "{input}"),
+        ("ai", "{output}"),
+    ]
+)
+# Create a chat prompt template from a human template string
+# 相当于：ChatPromptTemplate.from_messages([("human", "你好，{name}！")])
+# 只适用于简单对话，用户直接输入，不需要系统指令的简单场景
+prompt = ChatPromptTemplate.from_template(template)
+
+
+"""
 自定义提示词模板，要实现的功能为：
 根据函数名称，查找函数代码，并给出中文的代码说明
 """
@@ -12,7 +47,6 @@ from langchain_core.prompts import StringPromptTemplate
 from langchain.llms import OpenAI
 import inspect
 import os
-
 
 
 #定义一个简单的函数作为示例效果
@@ -149,3 +183,29 @@ system_prompt = """
 1. [资料标题](URL地址1)
 2. [资料标题](URL地址2)
 """
+
+# --------------------------------------------------------------------------
+
+template_string = """Translate the text \
+that is delimited by triple backticks \
+into a style that is {style}. \
+text: ```{text}```
+"""
+customer_style = """American English \
+in a calm and respectful tone
+"""
+customer_email = """
+Arrr, I be fuming that me blender lid \
+flew off and splattered me kitchen walls \
+with smoothie! And to make matters worse, \
+the warranty don't cover the cost of \
+cleaning up me kitchen. I need yer help \
+right now, matey!
+"""
+prompt_template = ChatPromptTemplate.from_template(template_string)
+
+customer_messages = prompt_template.format_messages(
+                    style=customer_style,
+                    text=customer_email)
+response = chain.invoke(customer_messages)
+print(response)

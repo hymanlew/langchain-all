@@ -6,7 +6,7 @@ from typing import Dict, Any, Optional, List
 from langchain_classic.chains.sequential import SimpleSequentialChain
 from langchain_core.callbacks import BaseCallbackHandler, CallbackManager
 from langchain_core.retrievers import BaseRetriever
-from langchain_core.runnables import RunnablePassthrough, RunnableBranch
+from langchain_core.runnables import RunnablePassthrough, RunnableBranch, RouterRunnable
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.tracers import ConsoleCallbackHandler
 from langchain_openai import ChatOpenAI
@@ -128,7 +128,6 @@ tags = RunnableConfig(tags=['print'])
 
 # 构建链: 数据处理 -> 提示词 -> LLM -> 输出解析
 # 使用 .with_config() 方法预先配置链，之后使用 callback 进行处理
-# RunnablePassthrough.assign()
 chain = (
     RunnableLambda(validate_user_input).with_config(tags)
     | RunnableLambda(process_payment).with_config(tags)
@@ -136,6 +135,20 @@ chain = (
     # | llm
     # | output_parser
 )
+
+# 构建路由分支，新版本中更推荐使用 `RunnableLambda` + 自定义路由函数
+branch = RunnableBranch(
+    (lambda x: "微积分" in x["question"] or "方程" in x["question"], math_chain), # 条件1 -> 链1
+    (lambda x: "力学" in x["question"] or "电磁" in x["question"], physics_chain), # 条件2 -> 链2
+    general_chain # 默认链
+)
+
+# routes to a set of `Runnable` based on `Input['key']` 是一个更底层的、面向特定架构的组件
+add = RunnableLambda(func=lambda x: x + 1)
+square = RunnableLambda(func=lambda x: x**2)
+router = RouterRunnable(runnables={"add": add, "square": square})
+router.invoke({"key": "square", "input": 3}) # RouterInput
+
 
 # 异步调用时，通过字典形式传入 RunnableConfig
 async def main():
