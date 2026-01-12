@@ -29,7 +29,8 @@ from typing import List, Dict, Union
 """
 # ====================== 初始化模型 ======================
 """
-多任务学习（Multi-Task Learning, MTL）框架是一种让单个模型同时学习多个相关任务的机器学习范式。在训练时同时优化多个任务的损失函数。适合需要同时获取实体识别、分类、情感分析等结果的NLP流水线。
+多任务学习（Multi-Task Learning, MTL）框架是一种让单个模型同时学习多个相关任务的机器学习范式。
+在训练时同时优化多个任务的损失函数。适合需要同时获取实体识别、分类、情感分析等结果的NLP流水线。
 """
 class MultiTaskAnnotationSystem:
     def __init__(self, device="cuda:0" if torch.cuda.is_available() else "cpu"):
@@ -59,7 +60,23 @@ class MultiTaskAnnotationSystem:
                 num_labels=len(ticket_categories)  # 工单类别
             ).to(device)
         }
+
+        """
+        pipeline 是 HuggingFace Transformers 库中一个高级工具，封装了模型加载、预处理、推理和后处理等步骤，使得只需几行代码就能使用
+        各种预训练模型进行特定任务。
+        - 提供简单的 API，快速使用各种预训练模型进行推理。
+        - 自动处理输入数据的预处理（如分词、填充等）、推理和输出数据的后处理。
+        - 支持多种任务，如文本分类、命名实体识别、翻译、文本生成等。
         
+        主要设计用于推理生成，封装好的。一行代码完成所有任务（生产环境使用）
+        classifier = pipeline("sentiment-analysis")  # 自动下载模型、分词器
+        result = classifier("I love this movie!")  # 自动预处理、推理、后处理
+        # 输出: [{'label': 'POSITIVE', 'score': 0.9998}]
+
+        而微调（包括 LoRA）通常涉及训练过程，需要自定义训练循环、训练超参等。
+        生产中微调、训练，需要使用 AutoModelForCausalLM。
+        但注意：目前 pipeline 对 PeftModel 微调模型的支持不完善，建议在推理前将适配器权重合并到原模型中。
+        """
         # 初始化pipeline（仅用于推理）
         self.pipelines = {
             "ner": pipeline(

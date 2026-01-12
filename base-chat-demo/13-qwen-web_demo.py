@@ -1,30 +1,22 @@
 import io
 import os
 import ffmpeg
-
 import numpy as np
 import gradio as gr
-import soundfile as sf 
-
+import soundfile as sf
 import modelscope_studio.components.base as ms
 import modelscope_studio.components.antd as antd
 import gradio.processing_utils as processing_utils
-
 from transformers import Qwen2_5OmniForConditionalGeneration, Qwen2_5OmniProcessor
 from gradio_client import utils as client_utils
 from qwen_omni_utils import process_mm_info
 from argparse import ArgumentParser
 
 '''
-
-
-qwen-vl-utils ���߰���
-֧��ͼ��/��Ƶ�� base64 ���롢URL ��������֡��Ƶ������
-�Ƽ�ʹ�� decord �� torchcodec ��˽�����Ƶ���� torchvision �� 3 ������
-
-
+qwen-vl-utils 工具包：
+支持图像/视频的 base64 编码、URL 解析及多帧视频处理。
+推荐使用 decord 或 torchcodec 后端解码视频（比 torchvision 快 3 倍）。
 '''
-
 def _load_model_processor(args):
     if args.cpu_only:
         device_map = 'cpu'
@@ -33,10 +25,7 @@ def _load_model_processor(args):
 
     # Check if flash-attn2 flag is enabled and load model accordingly
     if args.flash_attn2:
-        model = Qwen2_5OmniForConditionalGeneration.from_pretrained(args.checkpoint_path,
-                                                    torch_dtype='auto',
-                                                    attn_implementation='flash_attention_2',
-                                                    device_map=device_map)
+        model = Qwen2_5OmniForConditionalGeneration.from_pretrained(args.checkpoint_path, device_map=device_map)
     else:
         model = Qwen2_5OmniForConditionalGeneration.from_pretrained(args.checkpoint_path, device_map=device_map, torch_dtype='auto')
 
@@ -47,7 +36,6 @@ def _launch_demo(args, model, processor):
     # Voice settings
     VOICE_LIST = ['Chelsie', 'Ethan']
     DEFAULT_VOICE = 'Chelsie'
-
     default_system_prompt = 'You are Qwen, a virtual human developed by the Qwen Team, Alibaba Group, capable of perceiving auditory and visual inputs, as well as generating text and speech.'
 
     language = args.ui_language
@@ -58,7 +46,7 @@ def _launch_demo(args, model, processor):
         if language == 'zh':
             return cn_text
         return text
-    
+
     def convert_webm_to_mp4(input_file, output_file):
         try:
             (
@@ -79,14 +67,14 @@ def _launch_demo(args, model, processor):
             if isinstance(item["content"], str):
                 messages.append({"role": item['role'], "content": item['content']})
             elif item["role"] == "user" and (isinstance(item["content"], list) or
-                                            isinstance(item["content"], tuple)):
+                                             isinstance(item["content"], tuple)):
                 file_path = item["content"][0]
 
                 mime_type = client_utils.get_mimetype(file_path)
                 if mime_type.startswith("image"):
                     messages.append({
                         "role":
-                        item['role'],
+                            item['role'],
                         "content": [{
                             "type": "image",
                             "image": file_path
@@ -95,7 +83,7 @@ def _launch_demo(args, model, processor):
                 elif mime_type.startswith("video"):
                     messages.append({
                         "role":
-                        item['role'],
+                            item['role'],
                         "content": [{
                             "type": "video",
                             "video": file_path
@@ -104,7 +92,7 @@ def _launch_demo(args, model, processor):
                 elif mime_type.startswith("audio"):
                     messages.append({
                         "role":
-                        item['role'],
+                            item['role'],
                         "content": [{
                             "type": "audio",
                             "audio": file_path,
@@ -113,13 +101,14 @@ def _launch_demo(args, model, processor):
         return messages
 
     def predict(messages, voice=DEFAULT_VOICE):
-        print('predict history: ', messages)    
+        print('predict history: ', messages)
 
         text = processor.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
 
         audios, images, videos = process_mm_info(messages, use_audio_in_video=True)
 
-        inputs = processor(text=text, audio=audios, images=images, videos=videos, return_tensors="pt", padding=True, use_audio_in_video=True)
+        inputs = processor(text=text, audio=audios, images=images, videos=videos, return_tensors="pt", padding=True,
+                           use_audio_in_video=True)
         inputs = inputs.to(model.device).to(model.dtype)
 
         text_ids, audio = model.generate(**inputs, speaker=voice, use_audio_in_video=True)
@@ -154,11 +143,10 @@ def _launch_demo(args, model, processor):
 
         for f in files:
             if f:
-                history.append({"role": "user", "content": (f, )})
+                history.append({"role": "user", "content": (f,)})
 
         formatted_history = format_history(history=history,
-                                        system_prompt=system_prompt,)
-
+                                           system_prompt=system_prompt, )
 
         history.append({"role": "assistant", "content": ""})
 
@@ -194,18 +182,18 @@ def _launch_demo(args, model, processor):
 
         # Process audio input
         if audio:
-            history.append({"role": "user", "content": (audio, )})
+            history.append({"role": "user", "content": (audio,)})
 
         # Process image input
         if image:
-            history.append({"role": "user", "content": (image, )})
+            history.append({"role": "user", "content": (image,)})
 
         # Process video input
         if video:
-            history.append({"role": "user", "content": (video, )})
+            history.append({"role": "user", "content": (video,)})
 
         formatted_history = format_history(history=history,
-                                        system_prompt=system_prompt)
+                                           system_prompt=system_prompt)
 
         yield None, None, None, None, history
 
@@ -225,42 +213,44 @@ def _launch_demo(args, model, processor):
     with gr.Blocks() as demo, ms.Application(), antd.ConfigProvider():
         with gr.Sidebar(open=False):
             system_prompt_textbox = gr.Textbox(label="System Prompt",
-                                            value=default_system_prompt)
+                                               value=default_system_prompt)
         with antd.Flex(gap="small", justify="center", align="center"):
             with antd.Flex(vertical=True, gap="small", align="center"):
                 antd.Typography.Title("Qwen2.5-Omni Demo",
-                                    level=1,
-                                    elem_style=dict(margin=0, fontSize=28))
+                                      level=1,
+                                      elem_style=dict(margin=0, fontSize=28))
                 with antd.Flex(vertical=True, gap="small"):
-                    antd.Typography.Text(get_text("🎯 Instructions for use:",
-                                                "🎯 使用说明："),
-                                        strong=True)
+                    antd.Typography.Text(get_text("馃幆 Instructions for use:",
+                                                  "馃幆 浣跨敤璇存槑锛?),
+                    strong = True)
                     antd.Typography.Text(
                         get_text(
-                            "1️⃣ Click the Audio Record button or the Camera Record button.",
-                            "1️⃣ 点击音频录制按钮，或摄像头-录制按钮"))
+                            "1锔忊儯 Click the Audio Record button or the Camera Record button.",
+                            "1锔忊儯 鐐瑰嚮闊抽褰曞埗鎸夐挳锛屾垨鎽勫儚澶?褰曞埗鎸夐挳"))
                     antd.Typography.Text(
-                        get_text("2️⃣ Input audio or video.", "2️⃣ 输入音频或者视频"))
+                        get_text("2锔忊儯 Input audio or video.", "2锔忊儯 杈撳叆闊抽鎴栬€呰棰?))
                     antd.Typography.Text(
                         get_text(
-                            "3️⃣ Click the submit button and wait for the model's response.",
-                            "3️⃣ 点击提交并等待模型的回答"))
-        voice_choice = gr.Dropdown(label="Voice Choice",
-                                choices=VOICE_LIST,
-                                value=DEFAULT_VOICE)
-        with gr.Tabs():
-            with gr.Tab("Online"):
-                with gr.Row():
-                    with gr.Column(scale=1):
-                        microphone = gr.Audio(sources=['microphone'],
-                                            type="filepath")
-                        webcam = gr.Video(sources=['webcam'],
-                                        height=400,
-                                        include_audio=True)
-                        submit_btn = gr.Button(get_text("Submit", "提交"),
-                                            variant="primary")
-                        stop_btn = gr.Button(get_text("Stop", "停止"), visible=False)
-                        clear_btn = gr.Button(get_text("Clear History", "清除历史"))
+                            "3锔忊儯 Click the submit button and wait for the model's response.",
+                            "3锔忊儯 鐐瑰嚮鎻愪氦骞剁瓑寰呮ā鍨嬬殑鍥炵瓟"))
+                    voice_choice = gr.Dropdown(label="Voice Choice",
+                                               choices=VOICE_LIST,
+                                               value=DEFAULT_VOICE)
+                    with gr.Tabs():
+                        with
+                    gr.Tab("Online"):
+                    with gr.Row():
+                        with
+                    gr.Column(scale=1):
+                    microphone = gr.Audio(sources=['microphone'],
+                                          type="filepath")
+                    webcam = gr.Video(sources=['webcam'],
+                                      height=400,
+                                      include_audio=True)
+                    submit_btn = gr.Button(get_text("Submit", "鎻愪氦"),
+                                           variant="primary")
+                    stop_btn = gr.Button(get_text("Stop", "鍋滄"), visible=False)
+                    clear_btn = gr.Button(get_text("Clear History", "娓呴櫎鍘嗗彶"))
                     with gr.Column(scale=2):
                         media_chatbot = gr.Chatbot(height=650, type="messages")
 
@@ -296,19 +286,19 @@ def _launch_demo(args, model, processor):
                 # Media upload section in one row
                 with gr.Row(equal_height=True):
                     audio_input = gr.Audio(sources=["upload"],
-                                        type="filepath",
-                                        label="Upload Audio",
-                                        elem_classes="media-upload",
-                                        scale=1)
+                                           type="filepath",
+                                           label="Upload Audio",
+                                           elem_classes="media-upload",
+                                           scale=1)
                     image_input = gr.Image(sources=["upload"],
-                                        type="filepath",
-                                        label="Upload Image",
-                                        elem_classes="media-upload",
-                                        scale=1)
+                                           type="filepath",
+                                           label="Upload Image",
+                                           elem_classes="media-upload",
+                                           scale=1)
                     video_input = gr.Video(sources=["upload"],
-                                        label="Upload Video",
-                                        elem_classes="media-upload",
-                                        scale=1)
+                                           label="Upload Video",
+                                           elem_classes="media-upload",
+                                           scale=1)
 
                 # Text input section
                 text_input = gr.Textbox(show_label=False,
@@ -316,14 +306,14 @@ def _launch_demo(args, model, processor):
 
                 # Control buttons
                 with gr.Row():
-                    submit_btn = gr.Button(get_text("Submit", "提交"),
-                                        variant="primary",
-                                        size="lg")
-                    stop_btn = gr.Button(get_text("Stop", "停止"),
-                                        visible=False,
-                                        size="lg")
-                    clear_btn = gr.Button(get_text("Clear History", "清除历史"),
-                                        size="lg")
+                    submit_btn = gr.Button(get_text("Submit", "鎻愪氦"),
+                                           variant="primary",
+                                           size="lg")
+                    stop_btn = gr.Button(get_text("Stop", "鍋滄"),
+                                         visible=False,
+                                         size="lg")
+                    clear_btn = gr.Button(get_text("Clear History", "娓呴櫎鍘嗗彶"),
+                                          size="lg")
 
                 def clear_chat_history():
                     return [], gr.update(value=None), gr.update(
@@ -341,11 +331,11 @@ def _launch_demo(args, model, processor):
                     ])
 
                 stop_btn.click(fn=lambda:
-                            (gr.update(visible=True), gr.update(visible=False)),
-                            inputs=None,
-                            outputs=[submit_btn, stop_btn],
-                            cancels=[submit_event],
-                            queue=False)
+                (gr.update(visible=True), gr.update(visible=False)),
+                               inputs=None,
+                               outputs=[submit_btn, stop_btn],
+                               cancels=[submit_event],
+                               queue=False)
 
                 clear_btn.click(fn=clear_chat_history,
                                 inputs=None,
@@ -379,14 +369,16 @@ def _launch_demo(args, model, processor):
                 """)
 
     demo.queue(default_concurrency_limit=100, max_size=100).launch(max_threads=100,
-                                                                ssr_mode=False,
-                                                                share=args.share,
-                                                                inbrowser=args.inbrowser,
-                                                                server_port=args.server_port,
-                                                                server_name=args.server_name,)
+                                                                   ssr_mode=False,
+                                                                   share=args.share,
+                                                                   inbrowser=args.inbrowser,
+                                                                   server_port=args.server_port,
+                                                                   server_name=args.server_name, )
 
 
 DEFAULT_CKPT_PATH = "Qwen/Qwen2.5-Omni-7B"
+
+
 def _get_args():
     parser = ArgumentParser()
 
@@ -411,10 +403,12 @@ def _get_args():
                         help='Automatically launch the interface in a new tab on the default browser.')
     parser.add_argument('--server-port', type=int, default=7860, help='Demo server port.')
     parser.add_argument('--server-name', type=str, default='127.0.0.1', help='Demo server name.')
-    parser.add_argument('--ui-language', type=str, choices=['en', 'zh'], default='en', help='Display language for the UI.')
+    parser.add_argument('--ui-language', type=str, choices=['en', 'zh'], default='en',
+                        help='Display language for the UI.')
 
     args = parser.parse_args()
     return args
+
 
 if __name__ == "__main__":
     args = _get_args()

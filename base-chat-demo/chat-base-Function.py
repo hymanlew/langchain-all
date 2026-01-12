@@ -89,6 +89,7 @@ def calculate_order_total(items):
     return total_price
 
 client = OpenAI()
+
 assistant = client.beta.assistants.create(
     instructions="您是一个订单助手。请使用提供的函数来计算订单总价并回答问题。",
     model="gpt-4-1106-preview",
