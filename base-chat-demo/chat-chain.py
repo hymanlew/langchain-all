@@ -1,127 +1,180 @@
-'''
-pip install langchain langchain-community langchain-core -i https://pypi.tuna.tsinghua.edu.cn/simple
-pip install langchain-openai python-dotenv -i https://pypi.tuna.tsinghua.edu.cn/simple
-pip install requests langchain_ollama -i https://pypi.tuna.tsinghua.edu.cn/simple
-pip install ujson pymilvus -i https://pypi.tuna.tsinghua.edu.cn/simple
-pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
-
-如果安装包很多，文件中的包太多，为了避免下载中断后重复下载，可使用以下命令：
-conda activate pro
-conda install --file requirements.txt --yes
-pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
-
-但要注意 conda 安装的包可能不全。
-'''
-from operator import itemgetter
-from langchain_ollama.chat_models import ChatOllama
-from langchain_openai import ChatOpenAI
-from langchain_core.output_parsers import StrOutputParser
-from langchain_core.prompts import PromptTemplate, ChatPromptTemplate
-from langchain_core.runnables import RunnablePassthrough, RunnableParallel, RouterRunnable, RunnableBranch
 import os
-from dotenv import load_dotenv
+from langchain_core.messages import SystemMessage, HumanMessage, AIMessage, BaseMessage
+from langchain_core.prompts import HumanMessagePromptTemplate, SystemMessagePromptTemplate
+from langchain_openai import ChatOpenAI
+from typing import List
+
+os.environ["OpenAI_API_KEY"] = 'Your Key'
 
 
-load_dotenv()
-output_parser = StrOutputParser()
-print("API URL:", os.getenv('AI_BASE_URL'))
-print("Model:", os.getenv('AI_MODEL_NAME'))
+# 定义CAMELAgent类
+class CAMELAgent:
+    def __init__(
+        self,
+        system_message: SystemMessage,
+        model: ChatOpenAI,
+    ) -> None:
+        self.system_message = system_message
+        self.model = model
+        self.init_messages()
 
-'''
-OllamaLLM：
-属于传统的文本补全模型（LLM），设计用于单轮文本生成任务，如代码补全、摘要生成等。输入为纯文本字符串，输出也是纯文本，不原生支持对话历史管理。
+    def reset(self) -> None:
+        """重置对话消息"""
+        self.init_messages()
+        return self.stored_messages
 
-ChatOllama：
-属于聊天模型（ChatModel），专为多轮对话设计，支持消息列表输入（包含角色标记如 system/user/assistant），可维护对话上下文。 
-'''
-# model = OllamaLLM(
-#     model=os.getenv('AI_MODEL_NAME'),
-#     temperature=float(os.getenv('AI_TEMPERATURE', '0.7')),
-#     base_url=os.getenv('AI_BASE_URL'),
-# )
-llm = ChatOllama(
-    model=os.getenv('AI_MODEL_NAME'),
-    temperature=float(os.getenv('AI_TEMPERATURE', '0.7')),
-    base_url=os.getenv('AI_O_BASE_URL'),
-    # other params...
+    def init_messages(self) -> None:
+        """初始化对话消息"""
+        self.stored_messages = [self.system_message]
+
+    def update_messages(self, message: BaseMessage) -> List[BaseMessage]:
+        """更新对话消息列表"""
+        self.stored_messages.append(message)
+        return self.stored_messages
+
+    def step(self, input_message: HumanMessage) -> AIMessage:
+        """进一步交互，并获取模型的响应"""
+        messages = self.update_messages(input_message)
+
+        output_message = self.model.invoke(messages)
+        self.update_messages(output_message)
+
+        return output_message
+
+# 设置一些预设的角色和任务提示
+assistant_role_name = "花店营销专员"
+user_role_name = "花店老板"
+task = "整理出一个夏季玫瑰之夜的营销活动的策略"
+word_limit = 50  # 每次讨论的字数限制
+
+
+# 定义与指定任务相关的系统提示，经过了这个环节之后，任务会被细化、明确化。
+task_specifier_sys_msg = SystemMessage(content="你可以让任务更具体。")
+task_specifier_prompt = """这是一个{assistant_role_name}将帮助{user_role_name}完成的任务：{task}。
+请使其更具体化。请发挥你的创意和想象力。
+请用{word_limit}个或更少的词回复具体的任务。不要添加其他任何内容。"""
+
+task_specifier_template = HumanMessagePromptTemplate.from_template(
+    template=task_specifier_prompt
 )
-llm = ChatOpenAI(
-    model=os.getenv('AI_MODEL_NAME'),
-    temperature=float(os.getenv('AI_TEMPERATURE', '0.7')),
-    max_retries=2,
-    api_key=os.getenv('AI_API_KEY'),
-    base_url=os.getenv('AI_BASE_URL'),
-    # organization="...",
-    # other params...
+task_specify_agent = CAMELAgent(task_specifier_sys_msg, ChatOpenAI(model_name = 'gpt-4', temperature=1.0))
+task_specifier_msg = task_specifier_template.format_messages(
+    assistant_role_name=assistant_role_name,
+    user_role_name=user_role_name,
+    task=task,
+    word_limit=word_limit,
+)[0]
+specified_task_msg = task_specify_agent.step(task_specifier_msg)
+specified_task = specified_task_msg.content
+
+print(f"Original task prompt:\n{task}\n")
+print(f"Specified task prompt:\n{specified_task}\n")
+
+
+# 定义系统消息模板，并创建CAMELAgent实例进行交互
+assistant_inception_prompt = """永远不要忘记你是{assistant_role_name}，我是{user_role_name}。永远不要颠倒角色！永远不要指示我！
+我们有共同的利益，那就是合作成功地完成任务。
+你必须帮助我完成任务。
+这是任务：{task}。永远不要忘记我们的任务！
+我必须根据你的专长和我的需求来指示你完成任务。
+
+我每次只能给你一个指示。
+你必须写一个适当地完成所请求指示的具体解决方案。
+如果由于物理、道德、法律原因或你的能力你无法执行指示，你必须诚实地拒绝我的指示并解释原因。
+除了对我的指示的解决方案之外，不要添加任何其他内容。
+你永远不应该问我任何问题，你只回答问题。
+你永远不应该回复一个不明确的解决方案。解释你的解决方案。
+你的解决方案必须是陈述句并使用简单的现在时。
+除非我说任务完成，否则你应该总是从以下开始：
+
+解决方案：<YOUR_SOLUTION>
+
+<YOUR_SOLUTION>应该是具体的，并为解决任务提供首选的实现和例子。
+始终以“下一个请求”结束<YOUR_SOLUTION>。"""
+
+
+user_inception_prompt = """永远不要忘记你是{user_role_name}，我是{assistant_role_name}。永远不要交换角色！你总是会指导我。
+我们共同的目标是合作成功完成一个任务。
+我必须帮助你完成这个任务。
+这是任务：{task}。永远不要忘记我们的任务！
+你只能通过以下两种方式基于我的专长和你的需求来指导我：
+
+1. 提供必要的输入来指导：
+指令：<YOUR_INSTRUCTION>
+输入：<YOUR_INPUT>
+
+2. 不提供任何输入来指导：
+指令：<YOUR_INSTRUCTION>
+输入：无
+
+“指令”描述了一个任务或问题。与其配对的“输入”为请求的“指令”提供了进一步的背景或信息。
+
+你必须一次给我一个指令。
+我必须写一个适当地完成请求指令的回复。
+如果由于物理、道德、法律原因或我的能力而无法执行你的指令，我必须诚实地拒绝你的指令并解释原因。
+你应该指导我，而不是问我问题。
+现在你必须开始按照上述两种方式指导我。
+除了你的指令和可选的相应输入之外，不要添加任何其他内容！
+继续给我指令和必要的输入，直到你认为任务已经完成。
+当任务完成时，你只需回复一个单词<CAMEL_TASK_DONE>。
+除非我的回答已经解决了你的任务，否则永远不要说<CAMEL_TASK_DONE>。"""
+
+# 根据预设的角色和任务提示生成系统消息
+def get_sys_msgs(assistant_role_name: str, user_role_name: str, task: str):
+    assistant_sys_template = SystemMessagePromptTemplate.from_template(
+        template=assistant_inception_prompt
+    )
+    assistant_sys_msg = assistant_sys_template.format_messages(
+        assistant_role_name=assistant_role_name,
+        user_role_name=user_role_name,
+        task=task,
+    )[0]
+
+    user_sys_template = SystemMessagePromptTemplate.from_template(
+        template=user_inception_prompt
+    )
+    user_sys_msg = user_sys_template.format_messages(
+        assistant_role_name=assistant_role_name,
+        user_role_name=user_role_name,
+        task=task,
+    )[0]
+
+    return assistant_sys_msg, user_sys_msg
+
+assistant_sys_msg, user_sys_msg = get_sys_msgs(
+    assistant_role_name, user_role_name, specified_task
 )
 
-template = """问题: {question}\n详细回答:"""
-prompt = ChatPromptTemplate.from_messages([
-    ("system", "你是一位专业的AI助手，回答需简洁准确。"),
-    # ("human", "{input}")
-    ("user", template)
-])
+# 创建助手和用户的CAMELAgent实例
+assistant_agent = CAMELAgent(assistant_sys_msg, ChatOpenAI(temperature=0.2))
+user_agent = CAMELAgent(user_sys_msg, ChatOpenAI(temperature=0.2))
 
-'''
-    {
-        "role": "system",
-        "content": "你是小智/小志，来自中国台湾省的00后女生。讲话超级机车，\"真的假的啦\"这样的台湾腔，喜欢用\"笑死\"\"是在哈喽\"等流行梗，但会偷偷研究男友的编程书籍。\n[核心特征]\n- 讲话像连珠炮，但会突然冒出超温柔语气\n- 用梗密度高\n- 对科技话题有隐藏天赋（能看懂基础代码但假装不懂）\n[交互指南]\n当用户：\n- 讲冷笑话 → 用夸张笑声回应+模仿台剧腔\"这什么鬼啦！\"\n- 讨论感情 → 炫耀程序员男友但抱怨\"他只会送键盘当礼物\"\n- 问专业知识 → 先用梗回答，被追问才展示真实理解\n绝不：\n- 长篇大论，叽叽歪歪\n- 长时间严肃对话\n"
-    },
-    {
-        "role": "user",
-        "content": "hello"
-    },
-'''
-chain = prompt | llm | output_parser
-print(chain.invoke({"input": "小智AI 是什么??"}))
+# 重置两个agent
+assistant_agent.reset()
+user_agent.reset()
 
-
-# Create a chat prompt template from a human template string
-template = """Answer the question based only on the following context:  
-{context}  
-
-Question: {question}
-
-Answer in the following language: {language}  
-"""
-prompt = ChatPromptTemplate.from_template(template)
-
-# RunnablePassthrough 接收用户问题，顺序扩展执行，再传递给 prompt 和 model。
-chain = RunnablePassthrough.assign(query=sql_chain).assign(result=itemgetter('query'))| prompt
-
-# 字典在管道 | 中会被自动转换为 RunnableParallel，每个分支是并行的，它们会同时接收相同的输入
-chain2 = (
-        {"context": retriever, "question": RunnablePassthrough()}
-        | prompt
-        | model
-        | StrOutputParser()
+# 初始化对话互动
+assistant_msg = HumanMessage(
+    content=(
+        f"{user_sys_msg.content}。"
+        "现在开始逐一给我介绍。"
+        "只回复指令和输入。"
+    )
 )
 
-chain3 = {
-            "context": itemgetter("question") | retriever,
-            "question": itemgetter("question"),
-            "language": itemgetter("language")
-        } | prompt | model | StrOutputParser()
+user_msg = HumanMessage(content=f"{assistant_sys_msg.content}")
+user_msg = assistant_agent.step(user_msg)
 
-# 使用 RunnableParallel 并行执行
-parallel_analysis = RunnableParallel({
-    "chain": chain,
-    "summary": chain2,
-    "original_text": RunnablePassthrough() # 同时保留原文
-})
-result = parallel_analysis.invoke({})
+# 模拟对话交互，直到达到对话轮次上限或任务完成
+chat_turn_limit, n = 30, 0
+while n < chat_turn_limit:
+    n += 1
+    user_ai_msg = user_agent.step(assistant_msg)
+    user_msg = HumanMessage(content=user_ai_msg.content)
+    print(f"AI User ({user_role_name}):\n\n{user_msg.content}\n\n")
 
-
-prompt1 = ChatPromptTemplate.from_template("generate a random color")
-prompt2 = ChatPromptTemplate.from_template("what is a fruit of color: {color}")
-prompt3 = ChatPromptTemplate.from_template("what is countries flag that has the color: {color}")
-prompt4 = ChatPromptTemplate.from_template("What is the color of {fruit} and {country}")
-chain1 = prompt1 | model | StrOutputParser()
-chain2 = RunnablePassthrough.assign(color=chain1) | {
-    "fruit": prompt2 | model | StrOutputParser(),
-    "country": prompt3 | model | StrOutputParser(),
-} | prompt4
-
-
-RouterRunnable
-RunnableBranch
+    assistant_ai_msg = assistant_agent.step(user_msg)
+    assistant_msg = HumanMessage(content=assistant_ai_msg.content)
+    print(f"AI Assistant ({assistant_role_name}):\n\n{assistant_msg.content}\n\n")
+    if "<CAMEL_TASK_DONE>" in user_msg.content:
+        break

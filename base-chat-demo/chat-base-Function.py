@@ -73,60 +73,68 @@ def run_conversation():
 print(run_conversation())
 
 
+
 from openai import OpenAI
-
-# 定义计算订单总价函数
-def calculate_order_total(items):
-    item_prices = {
-        "书籍": 10,
-        "文具": 5,
-        "电子产品": 100
-    }
-    total_price = 0
-    for item in items:
-        price_per_item = item_prices.get(item['item_type'], 0)
-        total_price += price_per_item * item['quantity']
-    return total_price
-
 client = OpenAI()
 
-assistant = client.beta.assistants.create(
-    instructions="您是一个订单助手。请使用提供的函数来计算订单总价并回答问题。",
-    model="gpt-4-1106-preview",
-    tools=[{
+# 工具（也就是函数）的元数据
+tools = [
+    {
         "type": "function",
         "function": {
-            "name": "calculate_order_total",
-            "description": "根据多个商品类型和数量计算订单总价",
+            "name": "get_flower_inventory",
+            "description": "获取指定城市的鲜花库存",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "items": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "item_type": {
-                                    "type": "string",
-                                    "description": "商品类型,例如:书籍,文具,电子产品"
-                                },
-                                "quantity": {
-                                    "type": "integer",
-                                    "description": "商品数量"
-                                }
-                            },
-                            "required": [
-                                "item_type",
-                                "quantity"
-                            ]
-                        }
+                    "city": {
+                        "type": "string",
+                        "description": "城市名称，例如：北京、上海或深圳"
                     }
                 },
-                "required": [
-                    "items"
-                ]
+                "required": ["city"]
             }
         }
-    }]
+    }
+]
+
+# 第一次对话的Message
+messages = [{"role": "user", "content": "北京、上海和深圳的鲜花库存是多少？"}]
+
+# 第一次对话的返回结果
+first_response = client.chat.completions.create(
+    model="gpt-3.5-turbo-0125",
+    messages=messages,
+    tools=tools,
+    tool_choice="auto"
 )
+print("first_response:", first_response)
+response_message = first_response.choices[0].message
+tool_calls = response_message.tool_calls
+
+# 如果返回结果要求用Function Call，就调用函数，并把函数的查询结果附加到消息中
+if tool_calls:
+    messages.append(response_message)
+    for tool_call in tool_calls:
+        function_name = tool_call.function.name
+        function_args = json.loads(tool_call.function.arguments)
+        function_response = get_flower_inventory(
+            city=function_args.get("city")
+        )
+        messages.append(
+            {
+                "tool_call_id": tool_call.id,
+                "role": "tool",
+                "name": function_name,
+                "content": function_response,
+            }
+        )
+print("message:", messages)
+
+# 用有了库存查询结果的Message再来一次对话
+second_response = client.chat.completions.create(
+    model="gpt-3.5-turbo-0125",
+    messages=messages
+)
+print("second_response:", second_response)
 

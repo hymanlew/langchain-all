@@ -29,14 +29,19 @@ message = custom_template.format(
 )
 example_prompt = ChatPromptTemplate.from_messages(
     [
-        ("human", "{input}"),
-        ("ai", "{output}"),
+		("system", "{a} {b}"),
+        ("human", message),
     ]
 )
+prompt = example_prompt.partial(a="a")
+# prompt = prompt.format_prompt()
+
 # Create a chat prompt template from a human template string
 # 相当于：ChatPromptTemplate.from_messages([("human", "你好，{name}！")])
 # 只适用于简单对话，用户直接输入，不需要系统指令的简单场景
 prompt = ChatPromptTemplate.from_template(template)
+
+chain = prompt | model
 
 
 """
