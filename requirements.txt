@@ -4,7 +4,7 @@ langchain-community==0.4.1
 langchain_openai==1.0.1
 langchain_ollama==1.0.0
 langchain-tavily==0.2.12
-langchain_experimental==0.3.1
+langchain_experimental==0.0.42
 langchain-huggingface==1.0.0
 langchain-text-splitters==1.0.0
 langgraph==1.0.1
@@ -40,7 +40,6 @@ beautifulsoup4>=4.13.5
 grpcio>=1.67.1
 uvicorn>=0.35.0
 pydantic>=2.11.9
-yaml>=0.2.5
 pyyaml>=6.0.2
 nest-asyncio>=1.6.0
 numpy==2.2.6
