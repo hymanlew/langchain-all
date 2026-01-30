@@ -410,7 +410,7 @@ if __name__ == "__main__":
 
 
 # 使用 Streamlit 构建了一个简单的前端界面，用户可以通过输入框与智能体进行交互
-# app.py 
+# 08-rag-graph.py
 import uuid
 import datetime
 from dotenv import load_dotenv

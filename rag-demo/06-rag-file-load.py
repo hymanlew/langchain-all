@@ -11,7 +11,15 @@ from langchain_community.document_loaders import UnstructuredMarkdownLoader
 #     csv_reader = csv.DictReader(f)
 #     for row in csv_reader:
 
-loader = CSVLoader(file_path='file/weather_district_id.csv', encoding='utf-8')
+loader = CSVLoader(
+    file_path='file/weather_district_id.csv',
+    encoding='utf-8',
+    csv_args={
+        "delimiter": ",",
+        "quotechar": '"',
+        "fieldnames": ["种类", "名称", "说明", "等级"],
+    },
+)
 data = loader.load()
 for record in data[:2]:
     print(record)

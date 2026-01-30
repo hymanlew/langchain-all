@@ -26,11 +26,11 @@
 """
 # 安装依赖，pymilvus 是一个 python SDK 集成了多个嵌入模型，rerankers 模型
 # pip install pymilvus
+from pymilvus import model
 from pymilvus import connections, FieldSchema, CollectionSchema, DataType, Collection, utility,
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.embeddings import HuggingFaceEmbeddings
 
-# 连接到本地 Milvus 服务
 """
 connections 自动维护客户端，底层仍会创建 MilvusClient，但封装了连接池和状态管理
 
@@ -57,10 +57,8 @@ connections.connect(
 # 多线程环境下，不同线程可安全使用不同别名的连接（底层自动隔离），线程安全
 # 检查连接是否成功，并指定使用的连接，若不指定则默认是 default（创建连接时默认别名也是 default）
 print(utility.get_server_version(using="prod"))
-
 # 修改数据库密码
 utility.reset_password('name', 'old-pass', 'new-pass')
-
 
 # 创建集合（Collection）
 # 定义字段
@@ -84,7 +82,6 @@ prod_collection = Collection(
 )
 print(f"集合 {collection_name} 创建成功")
 
-
 # 创建索引（加速搜索）
 index_params = {
     "index_type": "IVF_FLAT",  # `IVF_FLAT`（中小规模）或 `HNSW`（快速查询）
@@ -98,7 +95,6 @@ prod_collection.create_index(
 )
 print("索引创建完成")
 
-
 # 插入数据
 # 1. 文档分块
 text_splitter = RecursiveCharacterTextSplitter(
@@ -110,6 +106,27 @@ chunks = text_splitter.split_text(long_text)
 # 2. 向量化
 embedding_model = HuggingFaceEmbeddings(model_name="BAAI/bge-small-en")
 embeddings = embedding_model.embed_documents(chunks)
+
+# 自定义嵌入模型
+# 初始化 OpenAI 嵌入函数
+embedding_function = model.dense.SentenceTransformerEmbeddingFunction(
+            # model_name='nvidia/NV-Embed-v2',
+            # model_name='dunzhang/stella_en_1.5B_v5',
+            # model_name='all-mpnet-base-v2',
+            # model_name='intfloat/multilingual-e5-large-instruct',
+            # model_name='Alibaba-NLP/gte-Qwen2-1.5B-instruct',
+            model_name='BAAI/bge-m3',
+            # model_name='jinaai/jina-embeddings-v3',
+            device='cuda:0' if torch.cuda.is_available() else 'cpu',
+            trust_remote_code=True
+        )
+# embedding_function = model.dense.OpenAIEmbeddingFunction(model_name='text-embedding-3-large')
+
+# 获取向量维度（使用一个样本文档）
+sample_doc = "Sample Text"
+sample_embedding = embedding_function([sample_doc])[0]
+sample_embedding = sample_embedding.tolist()
+vector_dim = len(sample_embedding)
 
 # 3. 准备Milvus数据
 """
@@ -159,7 +176,6 @@ results = test_collection.search(
     expr='category == "fiction"',  # 过滤条件
     output_fields=["text", "category"]
 )
-
 
 
 # 相似性搜索

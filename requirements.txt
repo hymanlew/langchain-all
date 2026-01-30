@@ -15,6 +15,7 @@ networkx==3.4.2
 openai==2.6.1
 loguru==0.7.3
 
+# 文档处理相关包
 aiohttp == 3.12.15
 fastmcp == 2.13.0
 mcp == 1.23.0
@@ -29,6 +30,13 @@ pypdf>=3.0.0
 pymysql==1.1.2
 sqlalchemy>=2.0.43 # orm 框架
 tqdm>=4.65.0  # 进度条显示
+pyyaml>=6.0.2
+beautifulsoup4>=4.13.5
+marker-pdf
+weasyprint
+mammoth
+unstructured[all-docs]
+libmagic
 
 trustcall
 yfinance>=0.2.65
@@ -36,10 +44,8 @@ typing_extensions>=4.15.0
 tenacity>=9.1.2
 psycopg2>=2.9.10
 pandas==2.3.2
-beautifulsoup4>=4.13.5
 grpcio>=1.67.1
 uvicorn>=0.35.0
 pydantic>=2.11.9
-pyyaml>=6.0.2
 nest-asyncio>=1.6.0
 numpy==2.2.6

@@ -153,6 +153,7 @@ class HybridDocumentProcessor:
 			key_info = self._extract_key_sentences(context_window)
 			return f"[CONTEXT: {key_info}] {sub_chunk}"
 	"""
+
     def process_document(self, full_text: str) -> List[Dict]:
         # 第一轮：按结构分块（模拟从Markdown/XML解析）
         structural_chunks = self._parse_structure(full_text)
@@ -196,6 +197,7 @@ from concurrent.futures import ThreadPoolExecutor
 def batch_process(documents: List[str], workers=4):
    with ThreadPoolExecutor(max_workers=workers) as executor:
 	   return list(executor.map(processor.process_document, documents))
+
 records = batch_process("长文档全文内容...documents")
 
 

@@ -2,7 +2,7 @@ import asyncio
 import os
 from langchain_community.document_loaders import PyPDFLoader, WebBaseLoader
 from typing import List, TypedDict
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain.text_splitter import RecursiveCharacterTextSplitter, Language
 from langchain_text_splitters import CharacterTextSplitter
 from langchain_community.vectorstores import Chroma
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
@@ -37,6 +37,14 @@ text_splitter = RecursiveCharacterTextSplitter.from_tiktoken_encoder(
     chunk_size=250, chunk_overlap=0
 )
 split_web_documents = text_splitter.split_documents(docs_list)
+
+# 代码分块结果
+python_splitter = RecursiveCharacterTextSplitter.from_language(
+   language=Language.PYTHON,  # 指定编程语言为Python
+   chunk_size=1000,
+   chunk_overlap=0
+)
+python_docs = python_splitter.create_documents(['GAME_CODE_PYTHON'])
 
 all_documents = split_pdf_documents + split_web_documents
 embeddings = OpenAIEmbeddings(

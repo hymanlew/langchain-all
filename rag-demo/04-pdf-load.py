@@ -1,8 +1,14 @@
 import pytesseract
 from pdf2image import convert_from_path
 from paddleocr import PaddleOCR
+from typing import List, Dict
+from bs4 import BeautifulSoup
 import pandas as pd
 import fitz  # PyMuPDF
+import matplotlib.patches as patches  # 用于在图像上绘制多边形
+import matplotlib.pyplot as plt  # Matplotlib库，用于绘图
+from PIL import Image  # 用于图像处理
+
 
 """
 多引擎校验机制：
@@ -10,6 +16,60 @@ import fitz  # PyMuPDF
 PaddleOCR	中文印刷体	自定义字典库 
 Tesseract5 	英文/数字	LSTM模型优化 
 PP-StructureV2	复杂表格	单元格合并算法 
+
+Unstructured 以语义分割和OCR见长（额外配置 ORC 库，Poppler（PDF 分析）），元素级分割（段落/标题/表格等），适合需要精细化处理的场景；支持 PDF、Word、HTML等
+PyMuPDF 是页面级或区域级提取，需额外配置 ORC 库，适合规则文档的批量操作。两者可协同使用，但需根据数据特性权衡性能与精度。
+
+PyMuPDF (fitz) 与 Unstructured 对比:
+优势:
+1. 更快的处理速度
+2. 更细粒度的PDF控制能力
+3. 可以获取更多元数据和文档结构信息
+4. 内存占用更少
+5. 不依赖外部工具
+
+劣势:
+1. 文本提取的智能化程度较低
+2. 没有自动的文档结构理解
+3. 需要手动处理布局分析
+
+from langchain.document_loaders import UnstructuredFileLoader
+from unstructured.cleaners.core import clean_extra_whitespace
+# 本地文件处理（保留元数据）
+loader = UnstructuredFileLoader(
+    "contract.pdf",
+    mode="elements",  # 分块保留标题、表格等结构
+    post_processors=[clean_extra_whitespace]  # 企业级文本清洗
+)
+docs = loader.load()
+
+from langchain_unstructured import UnstructuredLoader
+loader = UnstructuredLoader(
+    file_path=file_path,
+    strategy="hi_res",
+    #partition_via_api=True, # 通过API调用Unstructured
+    #coordinates=True, # 返回元素位置坐标
+)
+docs = []
+for doc in loader.lazy_load():
+    docs.append(doc)
+
+# 安装 PDF 解析器
+pip install -qu "unstructured[pdf]"
+pip install -qu "unstructured[md]" nltk
+也可以使用 ChatPDF 库，它会首先读取PDF文件，将其转换为可处理的文本格式，例如txt格式；
+
+2. ChatPDF会对提取出来的文本进行清理和标准化，例如去除特殊字符、分段、分句等，以便于
+后续处理。这一步可以使用自然语言处理技术，如正则表达式等；
+
+工具介绍：
+• Layout-parser：
+	• 优点：最大的模型（约800MB）精度非常高
+	• 缺点：速度慢一点
+• PaddlePaddle-ppstructure：
+• 	优点：模型比较小，效果也还行
+• unstructured：
+• 	缺点：fast模式效果很差，基本不能用，会将很多公式也识别为标题。其他模式或许可行，笔者没有尝试
 """
 class PDFParser:
     def __init__(self, ocr_engine="paddle"):
@@ -36,7 +96,6 @@ class PDFParser:
             results["images"].extend([self._ocr_image(img) for img in images])
 
         return self._post_process(results)
-
 
     # 高精度表格解析
     def _detect_tables(self, page):
@@ -91,46 +150,6 @@ class PDFParser:
         }
 
 
-# --------------------------------
-
-from typing import List, Dict
-import fitz  # PyMuPDF
-from bs4 import BeautifulSoup
-import re
-
-"""
-Unstructured 以语义分割和OCR见长（额外配置 ORC 库，Poppler（PDF 分析）），元素级分割（段落/标题/表格等），适合需要精细化处理的场景；支持 PDF、Word、HTML等
-PyMuPDF 是页面级或区域级提取，需额外配置 ORC 库，适合规则文档的批量操作。两者可协同使用，但需根据数据特性权衡性能与精度。
-
-from langchain.document_loaders import UnstructuredFileLoader
-from unstructured.cleaners.core import clean_extra_whitespace
-# 本地文件处理（保留元数据）
-loader = UnstructuredFileLoader(
-    "contract.pdf",
-    mode="elements",  # 分块保留标题、表格等结构
-    post_processors=[clean_extra_whitespace]  # 企业级文本清洗
-)
-docs = loader.load()
-
-# 安装 PDF 解析器
-pip install -qu "unstructured[pdf]"
-pip install -qu "unstructured[md]" nltk
-也可以使用 ChatPDF 库，它会首先读取PDF文件，将其转换为可处理的文本格式，例如txt格式；
-
-2. ChatPDF会对提取出来的文本进行清理和标准化，例如去除特殊字符、分段、分句等，以便于
-后续处理。这一步可以使用自然语言处理技术，如正则表达式等；
-
-工具介绍：
-• Layout-parser：
-	• 优点：最大的模型（约800MB）精度非常高
-	• 缺点：速度慢一点
-• PaddlePaddle-ppstructure：
-• 	优点：模型比较小，效果也还行
-• unstructured：
-• 	缺点：fast模式效果很差，基本不能用，会将很多公式也识别为标题。其他模式或许可行，笔者没有尝试
-
-"""
-
 # 结构化切片策略
 class SemanticSlicer:
     def __init__(self):
@@ -163,6 +182,54 @@ class SemanticSlicer:
                         slices[-1]["content"] += block["text"] + "\n"
 
         return self._post_process(slices)
+
+    def render_pdf_page(file_path, doc_list, page_number):
+        """
+        渲染指定PDF页面并绘制段落分类框。
+
+        参数：
+        - file_path: str，PDF文件路径。
+        - doc_list: list，包含段落信息的文档列表，每个元素是一个字典，包含段落元数据。
+        - page_number: int，要渲染的页面号（从1开始计数）。
+        """
+        # 打开PDF文件并加载指定页面
+        pdf_page = fitz.open(file_path).load_page(page_number - 1)
+        segments = [doc.metadata for doc in doc_list if doc.metadata.get("page_number") == page_number]
+
+        # 将PDF页面渲染为位图图像
+        pix = pdf_page.get_pixmap()
+        pil_image = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+
+        # 创建绘图环境
+        fig, ax = plt.subplots(figsize=(10, 10))
+        ax.imshow(pil_image)
+
+        # 定义类别颜色映射
+        category_to_color = {"Title": "orchid", "Image": "forestgreen", "Table": "tomato"}
+        categories = set()
+
+        # 绘制段落标注框
+        for segment in segments:
+            points = segment["coordinates"]["points"]
+            layout_width = segment["coordinates"]["layout_width"]
+            layout_height = segment["coordinates"]["layout_height"]
+            scaled_points = [
+                (x * pix.width / layout_width, y * pix.height / layout_height) for x, y in points
+            ]
+            box_color = category_to_color.get(segment["category"], "deepskyblue")
+            categories.add(segment["category"])
+            rect = patches.Polygon(scaled_points, linewidth=1, edgecolor=box_color, facecolor="none")
+            ax.add_patch(rect)
+
+        # 添加图例
+        legend_handles = [patches.Patch(color="deepskyblue", label="Text")]
+        for category, color in category_to_color.items():
+            if category in categories:
+                legend_handles.append(patches.Patch(color=color, label=category))
+        ax.axis("off")
+        ax.legend(handles=legend_handles, loc="upper right")
+        plt.tight_layout()
+        plt.show()
 
     """
     标题/子标题的存储必要性 在企业实践中，一定会存储标题和结构化信息。
@@ -248,7 +315,6 @@ from langchain_core.rate_limiters import InMemoryRateLimiter
 from langchain.chat_models import ChatopenAI
 from langchain.chains import ConversationalRetrievalChain
 
-# --- Rate Limiter ---
 rate_limiter = InMemoryRateLimiter(
     requests_per_second=0.1,  # 1 request every 10 seconds
     check_every_n_seconds=0.1,
