@@ -177,10 +177,13 @@ async def managed_client(config: dict):
     \"\"\"企业级封装的异步客户端\"\"\"
     async with MultiServerMCPClient(config) as client:
         try:
-            yield client
+            yield client.get_tools()
         except asyncio.TimeoutError:
             logger.error("MCP client timeout")
             raise ServiceUnavailableError()
+            
+async with managed_client() as tools:
+    llm_with_tool = prompt | llm.bind_tools(tools)
 """
 
 # 在 agent 中连接 MCP_SERVER 时，必须是在异步环境下建立连接的

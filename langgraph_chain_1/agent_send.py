@@ -6,14 +6,12 @@
 | **应用场景** | 批量处理文档、并行调用API、多主题内容生成      | 人工审核、编辑状态、多轮对话验证等“人在环路”场景             |
 
 Send指令的核心特点和使用场景：
-
 1. 异步通知：Send会在当前节点执行过程中，异步发送消息到目标节点
 2. 不中断当前执行：发送后，当前节点继续执行直到完成
 3. 消息队列：发送的消息会进入目标节点的消息队列
 4. 配合Command使用：通常Send + Command组合使用
 
 使用场景：
-
 场景1：预通知（Handoff前的打招呼）
   当前节点 -> Send(通知目标节点) -> 继续执行 -> Command(跳转到目标节点)
   目标节点执行时，会先收到Send的消息
@@ -43,37 +41,92 @@ Send指令的核心特点和使用场景：
   3. 专家收到Send的消息，了解背景
 """
 import operator
-from typing import TypedDict, Annotated
+from typing import TypedDict, Annotated, List, Literal
 from langgraph.config import get_stream_writer
 from langgraph.types import Send
 from langgraph.graph import StateGraph, END, START
 from langgraph.types import interrupt, Command
 from langgraph.checkpoint.memory import MemorySaver
 from chain_graph_1.display_graph import display_graph
+from pydantic import BaseModel, Field
 
 
-# 定义状态
+# 协调器-工作者模式（Map-Reduce模式）
+class Section(BaseModel):
+    name: str = Field(
+        description='报告章节的名称'
+    )
+    description: str = Field(
+        description='本章节中涵盖的主要主题和概念的简要概述'
+    )
+
+class Sections(BaseModel):
+    sections: List[Section] = Field(
+        description='报告的章节'
+    )
+
+
 class State(TypedDict):
-    item: str
-    items: list[str]
-    results: Annotated[list[str], operator.add]
+    topic: str
+    sections: List[Section]
+    completed_sections: Annotated[list, operator.add]
+    final_report: str
+
+# 定义工作者状态
+class WorkerState(TypedDict):
+    section: Section
+    completed_sections: Annotated[list, operator.add]
+
+
+planner = llm.with_structured_output(Sections)
 
 # 条件边函数：为每个item创建并行任务
 def map_router(state: State):
+    # 由 planner 生成，state["topic"] to sections
+    sections = ["cat", "dog", "bird"]
     writer = get_stream_writer()
-    writer({"router": state["items"]})
+    writer({"router": sections})
 
+    return {
+        'sections': sections
+    }
+
+def plan_workers(state: State):
+    """
+    使用send API 将工作者分配给计划中的每个章节，以实现动态工作者创建
+    """
     # 需要注意，Send() 不是条件边返回值，而是节点内部指令
     # Send 是用于在节点内部动态创建并行任务的指令（Map-Reduce模式），返回的是 Send 对象（而不是作为条件边的返回值），所以这里不是图的条件边。
     # 在图中，条件边函数应该返回下一个节点的名称（字符串）或包含节点名称的列表。如此才能展示并关联到图中
     # 为每个item创建并行任务
-    return [Send("process_item", {"item": s}) for s in state['items']]
+    return [Send('process_item', {'section': s}) for s in state['sections']]
 
-def process_item(state: State):
+def process_item(state: WorkerState):
+    section_name = state['section'].name
     # get_stream_writer()用于在节点执行过程中流式输出数据，但需要配合适当的流式调用方式才能看到输出
     writer = get_stream_writer()
-    writer({"process": state["item"]})
-    return {"results": [f"Processed {state['item']}"]}
+    writer({"process": section_name})
+
+    section = llm.invoke(
+        [
+            SystemMessage(
+                content='根据提供的章节的名称和描述编写报告章节，每个章节中不包含序言，使用markdown格式。200字以内'),
+            HumanMessage(content=f'这是章节的名称: {section_name}')
+        ]
+    )
+    return {
+        'completed_sections': [section.content]
+    }
+
+def synthesizer(state: State):
+    """
+    将各个章节的输出合称为完整的报告
+    """
+    completed_sections = state['completed_sections']
+    completed_report_sections = "\n\n".join(completed_sections)
+    return {
+        'final_report': completed_report_sections
+    }
 
 
 # 构建图
@@ -81,20 +134,29 @@ def process_item(state: State):
 builder = StateGraph(State)
 builder.add_node("map_router", map_router)
 builder.add_node("process_item", process_item)
+builder.add_node('synthesizer', synthesizer)
 
-# 这里必须使用 add_conditional_edges，因为 map_router 是动态的创建并行任务。而 add_edge 是静态边。
-# builder.add_edge(START, "map_router")
-builder.add_conditional_edges(START, map_router)
+# 这里必须使用 add_conditional_edges，因为 map_router 是动态的创建并行任务（内部直接 send）。而 add_edge 是静态边。
+# builder.add_conditional_edges(START, map_router)
 # map_router的条件边：可以返回节点名或Send()列表
-builder.add_conditional_edges("map_router", process_item)
+# builder.add_conditional_edges("map_router", process_item)
+
+# 或使用此种方式
+builder.add_edge(START, "map_router")
+builder.add_conditional_edges(
+    "map_router",
+    plan_workers,
+    ['process_item']
+)
 # 处理节点后汇聚到END
-builder.add_edge("process_item", END)
+builder.add_edge("process_item", "synthesizer")
+builder.add_edge("synthesizer", END)
 
 graph = builder.compile()
 display_graph(graph)
 
 # 执行：两个任务会并行处理
-inputs = {"items": ["cat", "dog", "bird"]}
+inputs = {"topic": "animals"}
 for step in graph.stream(inputs, config={"thread_id": 1}, stream_mode="values"):
     # node, output = list(step.items())[0]
     # print(f"[节点 {node}] → {output}")
@@ -122,3 +184,71 @@ graph = builder.compile(checkpointer=checkpointer)
 # 人工审核后，使用Command携带结果恢复执行
 resume_command = Command(resume="审核通过，可以继续")
 final_result = graph.invoke(resume_command, config={"thread_id": 1})
+
+
+# 评估器-优化器模式（生成-反馈-修订，迭代改进模式）
+class Feedback(BaseModel):
+    grade: Literal['funny', 'not funny'] = Field(
+        description='判断笑话是否有趣'
+    )
+    feedback: str = Field(
+        description='如果笑话不好笑，提供改进它的反馈'
+    )
+
+class State(TypedDict):
+    topic: str
+    joke: str
+    feedback: str
+    funny_or_not: str
+
+evaluator = llm.with_structured_output(Feedback)
+
+def llm_call_generator(state: State):
+    '''
+    生成器节点，llm生成笑话，可能会结合之前评估器的反馈
+    '''
+    topic = state['topic']
+    if state.get('feedback'):
+        feedback = state['feedback']
+        msg = llm.invoke(f'请写一个关于{topic}的笑话，但是要考虑反馈:{feedback}')
+    else:
+        msg = llm.invoke(f'写一个关于{topic}的笑话')
+    return {
+        'joke': msg.content
+    }
+
+def llm_call_evaluator(state: State):
+    '''
+    评估生成笑话
+    '''
+    joke = state['joke']
+    grade = evaluator.invoke(f'评估笑话{joke}是否好笑,如果不好笑给出修改建议')
+    return {
+        'funny_or_not': grade.grade,
+        'feedback': grade.feedback
+    }
+
+def route_joke(state: State):
+    if state['funny_or_not'] == 'funny':
+        return 'Accepted'
+    elif state['funny_or_not'] == 'not funny':
+        return 'Rejected'
+
+
+builder = StateGraph(State)
+builder.add_node('llm_call_generator', llm_call_generator)
+builder.add_node('llm_call_evaluator', llm_call_evaluator)
+
+builder.add_edge(START, 'llm_call_generator')
+builder.add_edge('llm_call_generator', 'llm_call_evaluator')
+builder.add_conditional_edges(
+    'llm_call_evaluator',
+    route_joke,
+    {
+        'Accepted': END,
+        'Rejected': 'llm_call_generator'
+    }
+)
+workflow = builder.compile()
+result = workflow.invoke({'topic': '贾乃亮与pg one'})
+print(result['joke'])

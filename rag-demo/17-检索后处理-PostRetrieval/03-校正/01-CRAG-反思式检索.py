@@ -3,7 +3,17 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import WebBaseLoader
 from langchain_community.vectorstores import Chroma
 from langchain_openai import OpenAIEmbeddings
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.pydantic_v1 import BaseModel, Field
+from langchain_core.runnables import RunnablePassthrough
+from langchain_openai import ChatOpenAI
+from langchain import hub
+from langchain_core.output_parsers import StrOutputParser
+from typing import List
+from typing_extensions import TypedDict
 from dotenv import load_dotenv
+
+
 load_dotenv()
 urls = [
     "https://lilianweng.github.io/posts/2023-06-23-agent/",
@@ -18,7 +28,7 @@ text_splitter = RecursiveCharacterTextSplitter.from_tiktoken_encoder(
 )
 doc_splits = text_splitter.split_documents(docs_list)
 
-# 添加到向量数据库
+#1 添加到向量数据库
 vectorstore = Chroma.from_documents(
     documents=doc_splits,
     collection_name="rag-chroma",
@@ -27,11 +37,6 @@ vectorstore = Chroma.from_documents(
 retriever = vectorstore.as_retriever()
 
 #2 检索评分器
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.pydantic_v1 import BaseModel, Field
-from langchain_openai import ChatOpenAI
-
-# 数据模型
 class GradeDocuments(BaseModel):
     """对检索文档相关性的二元评分。"""
     binary_score: str = Field(
@@ -42,7 +47,6 @@ class GradeDocuments(BaseModel):
 llm = ChatOpenAI(model="gpt-4o", temperature=0.5)
 structured_llm_grader = llm.with_structured_output(GradeDocuments)
 
-# 提示模板
 system = """你是一个评估检索文档与用户问题相关性的评分员。 \n 
     如果文档包含与问题相关的关键词或语义含义，则将其评为相关。 \n
     给出一个二元评分'yes'或'no'来表示文档是否与问题相关。"""
@@ -59,32 +63,7 @@ docs = retriever.get_relevant_documents(question)
 doc_txt = docs[1].page_content
 print(retrieval_grader.invoke({"question": question, "document": doc_txt}))
 
-#3 设置生成模型
-from langchain import hub
-from langchain_core.output_parsers import StrOutputParser
-
-# 提示模板
-prompt = hub.pull("rlm/rag-prompt")
-
-# 语言模型
-llm = ChatOpenAI(model_name="gpt-3.5-turbo", temperature=0)
-
-# 后处理
-def format_docs(docs):
-    return "\n\n".join(doc.page_content for doc in docs)
-
-# 链式调用
-rag_chain = prompt | llm | StrOutputParser()
-
-# 运行
-generation = rag_chain.invoke({"context": docs, "question": question})
-print(generation)
-
-#4 设置问题重写器
-# 语言模型
-llm = ChatOpenAI(model="gpt-4o", temperature=0.5)
-
-# 提示模板
+#3 设置问题重写器
 system = """你是一个问题重写者，将输入的问题转换为更适合网络搜索的版本。 \n 
      分析输入并尝试推理出潜在的语义意图/含义。"""
 re_write_prompt = ChatPromptTemplate.from_messages(
@@ -96,23 +75,12 @@ re_write_prompt = ChatPromptTemplate.from_messages(
         ),
     ]
 )
-
 question_rewriter = re_write_prompt | llm | StrOutputParser()
 question_rewriter.invoke({"question": question})
 
-#5 设置网络搜索工具
+#4 定义图状态
 from langchain_community.tools.tavily_search import TavilySearchResults
-
 web_search_tool = TavilySearchResults(k=3)
-
-#6 设置CRAG
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.pydantic_v1 import BaseModel, Field
-from langchain_core.runnables import RunnablePassthrough
-
-#7 定义图状态
-from typing import List 
-from typing_extensions import TypedDict
 
 class GraphState(TypedDict):
     """
@@ -124,13 +92,10 @@ class GraphState(TypedDict):
         web_search: 是否添加搜索
         documents: 文档列表
     """
-
     question: str
     generation: str
     web_search: str
     documents: List[str]
-
-from langchain.schema import Document
 
 def retrieve(state):
     """
@@ -144,8 +109,6 @@ def retrieve(state):
     """
     print("---检索---")
     question = state["question"]
-
-    # 检索
     documents = retriever.get_relevant_documents(question)
     return {"documents": documents, "question": question}
 
@@ -177,7 +140,6 @@ def grade_documents(state):
     返回:
         state (dict): 更新documents键，只保留经过筛选的相关文档
     """
-
     print("---检查文档与问题的相关性---")
     question = state["question"]
     documents = state["documents"]
@@ -216,7 +178,6 @@ def transform_query(state):
     返回:
         state (dict): 用重新表述的问题更新question键
     """
-
     print("---转换查询---")
     question = state["question"]
     documents = state["documents"]
@@ -237,7 +198,6 @@ def web_search(state):
     返回:
         state (dict): 用追加的网络搜索结果更新documents键
     """
-
     print("---网络搜索---")
     question = state["question"]
     documents = state["documents"]
@@ -252,7 +212,6 @@ def web_search(state):
     return {"documents": documents, "question": question}
 
 ### 边缘处理
-
 def decide_to_generate(state):
     """
     决定是生成答案还是重新生成问题。
@@ -263,7 +222,6 @@ def decide_to_generate(state):
     返回:
         str: 下一个要调用的节点的二元决策
     """
-
     print("---评估已评分文档---")
     state["question"]
     web_search = state["web_search"]
@@ -272,9 +230,7 @@ def decide_to_generate(state):
     if web_search == "Yes":
         # 所有文档都已被check_relevance过滤
         # 我们将重新生成一个新的查询
-        print(
-            "---决策: 所有文档与问题都不相关，转换查询---"
-        )
+        print("---决策: 所有文档与问题都不相关，转换查询---")
         return "transform_query"
     else:
         # 我们有相关文档，所以生成答案
@@ -283,7 +239,7 @@ def decide_to_generate(state):
 
 #8 编译图
 from langgraph.graph import END, StateGraph, START
-
+from pprint import pprint
 workflow = StateGraph(GraphState)
 
 # 定义节点
@@ -307,13 +263,8 @@ workflow.add_conditional_edges(
 workflow.add_edge("transform_query", "web_search_node")
 workflow.add_edge("web_search_node", "generate")
 workflow.add_edge("generate", END)
-
 # 编译
 app = workflow.compile()
-
-#9 使用图回答问题
-
-from pprint import pprint
 
 # 运行
 inputs = {"question": "What are the types of agent memory?"}
@@ -328,5 +279,4 @@ for output in app.stream(inputs):
 
 # 最终生成
 pprint(value["generation"])
-
 

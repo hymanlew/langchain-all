@@ -5,9 +5,12 @@
 它首先从用户那里收集需求，然后生成提示(并根据用户输入进行细化)。这些被分成两个独立的状态，LLM 决定何时在它们之间转换。
 """
 from typing import List
+
+from langchain.agents.factory import create_agent
 from langchain_core.messages import SystemMessage
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from langgraph.prebuilt import create_react_agent
 from pydantic import Field, BaseModel
 from typing import Literal
 from langgraph.graph import END
@@ -16,10 +19,6 @@ from langgraph.graph import START, MessageGraph
 import uuid
 
 
-'''
-收集信息
-首先，让我们定义图中用于收集用户需求的部分。这是一个带有特定系统消息的 LLM 调用。它将访问一个工具，当它准备好生成提示时可以调用该工具。
-'''
 # 定义一个模板，用于指导用户提供模板所需的信息
 template = """Your job is to get information from a user about what type of prompt template they want to create.
 You should get the following information from them:
@@ -30,8 +29,8 @@ You should get the following information from them:
 - Any requirements that the output MUST adhere to
 
 If you are not able to discern this info, ask them to clarify! Do not attempt to wildly guess.
-After you are able to discern all the information, call the relevant tool."""
-
+After you are able to discern all the information, call the relevant tool.
+"""
 """
 你的工作是从用户那里获取他们想要创建哪种类型的提示模板的信息。
 您应该从他们那里获得以下信息:
@@ -75,7 +74,35 @@ def get_messages_info(messages):
 	# Return the new system message + all non-system messages
 	return [SystemMessage(content=prompt)] + non_system_messages
 
-	
+
+"""
+区分绑定工具的两种方式：
+1，使用 Pydantic BaseModel 定义工具的模式，通过 llm.bind_tools([BaseModel]) 绑定。
+2，使用 @tool 装饰器装饰一个函数，使用 llm.bind_tools([@tool装饰的函数])。
+
+使用BaseModel工具模式，定义了工具的名称、描述和参数。bind_tools方法会将这个模型转换成LLM可以理解的函数描述，并添加到LLM的调用中。
+让LLM知道了如何结构化地调用工具，但并不涉及实际的函数执行。这种方式常用于OpenAI风格的函数调用（function calling），当LLM认为需要调用工具时，
+它会返回一个包含函数名和参数的JSON对象，然后由外部代码来执行相应的函数。
+
+在LangChain中，@tool装饰器是用来将一个普通的Python函数转换成一个LangChain工具（Tool对象）的。这个Tool对象包含了函数的描述、参数等信息，
+还包含了函数的具体实现。bind_tools同样会将这个工具的描述信息传递给LLM，使得LLM可以决定调用它。这种方式通常用于构建代理，代理会实际执行这个函数。
+可以直接被用于构建代理（Agent）。
+- tool_node = ToolNode([tool])
+- agent = create_agent(
+    model=llm,
+    tools=[tool],
+    system_prompt="你是一个助手，需要根据用户请求选择合适的工具来完成任务。"
+)
+
+请注意：LangChain中，llm.bind_tools方法通常用于将工具绑定到LLM，以便LLM可以输出工具调用。但这个绑定并不自动执行工具。要实际执行工具，你需要使用Agent或手动处理工具调用。
+实际上，bind_tools方法期望接收一个工具列表，这个列表中的每个元素可以是：
+- 一个BaseModel（表示一个函数调用的模式）
+- 一个Tool对象（通过@tool装饰的函数就是一个Tool对象）
+- 一个字典（表示一个函数描述）
+
+在实际使用中，如果希望LLM能够自动执行工具，应该使用Tool对象，并将其放入一个Agent中。如果只是希望LLM以结构化的方式输出工具调用，而不关心执行，那么使用BaseModel就足够了。
+"""
+# 以特定的结构化格式输出工具调用请求
 llm = ChatOpenAI(model="gpt-4o",temperature=0)
 llm_with_tool = llm.bind_tools([PromptInstructions])
 chain = get_messages_info | llm_with_tool
@@ -97,7 +124,7 @@ def get_prompt_messages(messages):
 	prompt_system = """Based on the following requirements, write a good prompt template: {regs}"""
 	return [SystemMessage(content=prompt_system.format(regs=tool_call))] + other_msgs
 	
-	
+
 # 将消息处理链定义为 get_prompt_messages 函数和 LLM 实例
 prompt_create_chain = get_prompt_messages | llm
 
