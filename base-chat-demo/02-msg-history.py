@@ -70,6 +70,7 @@ do_message = RunnableWithMessageHistory(
 )
 
 # 手动发送聊天请求，给当前会话定义一个sessionId，第一个用户
+@app.post("/chat")
 config = {'configurable': {'user_id':'111', 'session_id': 'user1'}}
 # 第一轮
 resp1 = do_message.invoke(
@@ -93,6 +94,7 @@ print(resp2.content)
 
 # 给当前会话定义一个sessionId，第二个用户
 # 第3轮：返回的数据是流式的（一个 token 一个 token 的返回）
+# @app.post("/chat") 实现会话历史的自动存取。每次请求时只需传入当前消息和会话标识，框架会自动加载历史记录，并在响应后保存新的对话
 config = {'configurable': {'user_id':'222', 'session_id': 'user2'}}
 for resp in do_message.stream(
 	{

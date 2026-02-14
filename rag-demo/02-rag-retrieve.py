@@ -526,44 +526,6 @@ class ClipServiceStub:
         )
 
 
-"""
-Reranker 是检索增强生成(RAG)系统中的二次排序组件，用于对初步检索结果进行精细化重排序。与嵌入模型（生成向量）不同，Reranker 直接计算
-查询与文档的相关性得分，通过深度语义理解提升排序质量。
-是属于检索流程的中间件，位于初步检索（Milvus/TuGraph）与生成环节之间，形成"检索-重排-生成"管道
-
-Rerank 模型分为基于 Transformer 的交叉编码器（如BERT）、LLM微调模型（如RankVicuna）（如） 
-
-Rerank 模型就是指具体的算法组件实现，如：
-- BGE-Reranker：基于RoBERTa微调的交叉编码器，高精度需求
-- FlashRank-CPU：低延迟要求
-- Cohere Rerank：轻量级API服务，多模态混合
-
-# reranker-service.yaml
-env:
-- name: RERANKER_MODEL
-  value: "BAAI/bge-reranker-large-fp16"  # 启用FP16优化
-- name: FUSION_WEIGHTS
-  value: '{"text":0.7, "graph":0.5, "image":0.4}'
-resources:
-  limits:
-    gpu: 1  # 需要A10G以上GPU
-    memory: 8Gi
-"""
-# # 企业级实现示例（结合 FlagEmbedding 库）
-# from FlagEmbedding import FlagReranker
-#
-# # 初始化高性能 reranker（支持FP16加速）
-# reranker = FlagReranker('BAAI/bge-reranker-large', use_fp16=True)
-# # 混合检索结果
-# initial_results = vector_db.search(query, k=30) + graph_db.query(query, limit=10)
-# # 重排序计算
-# scored_pairs = [(query, doc) for doc in initial_results]
-# rerank_scores = reranker.compute_score(scored_pairs, normalize=True)  # 归一化到0-1
-# # 动态融合（加权分数）
-# final_ranking = sorted(zip(initial_results, rerank_scores),
-#                key=lambda x: x[1]*0.7 + x[0].original_score*0.3,  # 权重可调
-#                reverse=True)
-
 class RerankerStub:
     """Reranker服务存根"""
     def __init__(self, channel):

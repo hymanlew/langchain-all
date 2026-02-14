@@ -179,7 +179,8 @@ async def execute_graph(user_input: str)-> str:
 
     else: #用户输入了y 想继续工具的调用
         # 在继续中断的工作流时，我们不需要输入新的消息，因为中断的工作流已经在等待某个节点的执行，而不是等待用户输入。所以，我们使用 None 作为输入，并传入之前的配置（config）来继续
-        async for chunk in app.astream(None, config, stream_mode="values"):
+        user_input = Command(resume=user_response)
+        async for chunk in app.astream(user_input, config, stream_mode="values"):
             print(chunk)
         result = 'continue'
 
@@ -193,6 +194,7 @@ async def execute_graph(user_input: str)-> str:
     return result
 
 async def main():
+    # app.post('/chat') 只需传递会话 ID 和当前消息，服务端根据状态决定是启动新流程还是恢复。利用 RunnableWithMessageHistory 自动管理历史
     while True:
         user_input = input('用户:')
         res = await execute_graph(user_input)
